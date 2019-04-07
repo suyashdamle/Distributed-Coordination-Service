@@ -1,5 +1,7 @@
 import enum
 import socket
+import pickle
+import struct
 
 class Msg_type(enum.Enum):
 	heartbeat = 1
@@ -8,19 +10,24 @@ class Msg_type(enum.Enum):
 	# TODO: add more!!
 
 def recv_msg(sock):
-		msglen = recvall(sock, 4)
-		if not msglen:
-			return None
-		msglen = struct.unpack('>I', raw_msglen)[0]
-		return recvall(sock, msglen)
+	"""
+	returns the message object received on the connection
+	"""
+	msglen = recvall(sock, 4)
+	if not msglen:
+		return None
+	msglen = struct.unpack('>I', msglen)[0]  # '>' denotes big-endian byte order
+	byte_data = recvall(sock, msglen)
+	return pickle.loads(byte_data)
 
 def send_msg(sock, msg):
 	"""
 	sends message, appended by the length (in bytes) of the message
 	Params:
 		sock : the bound socket
-		msg  : byte-stream to be sent 
+		msg  : object to be sent 
 	"""
+	msg = pickle.dumps(msg)
 	msg = struct.pack('>I', len(msg)) + msg
 	sock.sendall(msg)
 

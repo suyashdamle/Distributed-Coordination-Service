@@ -44,7 +44,7 @@ class Node(object):
 		# Creating the heartbeat handling thread
 		heartbeat_thread = threading.Thread(target = self.heartbeat_thread_fn, args=())
 		heartbeat_thread.start()
-		heartbeat_tid = heartbeat_thread.ident
+		self.heartbeat_tid = heartbeat_thread.ident
 		
 		# TODO : decide parameters of each thread function
 		coordination_thread =  threading.Thread(target = self.coordination_thread_fn, args=(heartbeat_tid,))
@@ -73,7 +73,6 @@ class Node(object):
 
 				while not q.empty():
 					hmsg = q.get()
-					hmsg = pickle.loads(hmsg)
 					print("DEBUG_MSG: got heartbeat_msg from: ",(hmsg._source_host,hmsg._source_port))
 					responded_nodes.append((hmsg._source_host,hmsg._source_port))
 				
@@ -98,7 +97,6 @@ class Node(object):
 						s.connect((self.network_dict[n_id][0],self.network_dict[n_id][1]))
 						heartbeat_msg._source_host,heartbeat_msg._source_port=s.getsockname()
 						heartbeat_msg._recv_host,heartbeat_msg._recv_port = self.network_dict[n_id]
-						heartbeat_msg = pickle.dumps(heartbeat_msg)
 						send_msg(s, heartbeat_msg)
 
 				# re-starting timer
@@ -144,19 +142,18 @@ class Node(object):
 					connection.setblocking(0)
 					inputs.append(connection)
 					print("DEBUG_MSG: Received connection request from: ",client_address)
-
 					# creating a message queue for each connection
 					message_queues[connection] = queue.Queue() 
 				else:
 					# if some message has been received - be it in part
-					data, whole_recvd = recv_msg(connection)	#server
-					if data:
+					msg = recv_msg(connection)	#server
+					if msg:
 						print("DEBUG_MSG: data received: ")
-
+						msg._source_host = client_address[0]
+						msg._source_port = client_address[1]
 						# find message type and send to the right thread
-						msg = pickle.loads(data)
 						if Msg_type(msg._m_type) is Msg_type.heartbeat:
-							self.thread_msg_qs[heartbeat_tid].put(msg)
+							self.thread_msg_qs[self.heartbeat_tid].put(msg)
 
 						# # sending back ACK
 						# data = ("ACK - data received: "+str(data)).encode()
