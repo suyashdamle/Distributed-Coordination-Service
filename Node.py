@@ -13,6 +13,9 @@ import time
 from coordination_utils import *
 from Message import Message
 
+
+# TODO: use UDP for heartbeats 
+
 class Node(object):
 	"""
 	The Node object runs on each node/server and does all tasks relating to 
@@ -22,29 +25,32 @@ class Node(object):
 
 	def __init__(self, config_fname=None,host=None,port=None):
 
-		# class members
+		# instance members
 		# TODO : read config file and populate lists and metadata
 		self.HOST = '127.0.0.1'  		# Standard loopback interface address (localhost)
-		self.PORT = 65432       		# Port to listen on
+		self.PORT = 64532       		# Port to listen on
 		self.thread_msg_qs = {}			# Each thread gets a msg queue, key = its thread-id;val= a Queue obj
-		self.network_dict={}			# A dict of type 	[node_id : <host_ip,host_port>]
+		self.network_dict={}			# A dict of type 	[node_id : <host_ip, host_port, dead/alive status>]
 		self.is_leader = False			# whether this node is the leader or not
 		self.heartbeat_delay = 5		# in seconds
 		self.timeout_thresh = 3			# number of timeouts, after which a node is declared dead
 		self.node_id = -1				# the node-id of this instance - changed during joining protocol
 		self.config_fname = config_fname
 
+		# Thread-ids of some critical processes kept as instance variables
+		self.coordinator_tid = None
 
 		# present leader details
+		self.ldr_id = 1
 		self.ldr_ip = '127.0.0.1'
-		self.ldr_port = '64532'
-		self.ldr_heartbeat_delay=100	# max how much delay could be expected from the leader bet heartbeats
+		self.ldr_port = 64532
+		self.ldr_heartbeat_delay=5		# max how much delay could be expected from the leader bet heartbeats
 
 
 		# Creating the heartbeat handling thread
 		heartbeat_thread = threading.Thread(target = self.heartbeat_thread_fn, args=())
 		heartbeat_thread.start()
-		self.heartbeat_tid = heartbeat_thread.ident
+		heartbeat_tid = heartbeat_thread.ident
 		
 		# TODO : decide parameters of each thread function
 		coordination_thread =  threading.Thread(target = self.coordination_thread_fn, args=(heartbeat_tid,))
@@ -52,19 +58,47 @@ class Node(object):
 		self.coordinator_tid = coordination_thread.ident
 
 
+	def thread_manager(self):
+		"""
+		ensures that finished threads are removed from lists of threads
+		"""
+
+	def ldrelect_thread_fn(self):
+		"""
+		Tasked with the election of the 
+		"""
+		has_leader = False
+		nodes = self.network_dict.keys().append(self.node_id)
+		while not has_leader:
+			nodes = sorted(nodes)
+			for n_id in nodes:
+				with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+					try:
+						s.connect((self.network_dict[n_id][0],self.network_dict[n_id][1]))
+					except:
+						pass
+					else:
+						heartbeat_msg._source_host,heartbeat_msg._source_port=s.getsockname()
+						heartbeat_msg._recv_host,heartbeat_msg._recv_port = self.network_dict[n_id]
+						heartbeat_msg._msg_id = (self.node_id,threading.current_thread().ident)
+						send_msg(s, heartbeat_msg)
+		# now, the coordinator is responsible to pass the heartbeat messages 
+
+
 	def heartbeat_thread_fn(self):
 		'''
 		Does all processes related to heartbeat receiving and sending
 		'''
 		
-		self.thread_msg_qs[threading.get_ident()] = queue.Queue()
+		self.thread_msg_qs[threading.current_thread().ident] = queue.Queue()
+		heartbeat_msg = Message(Msg_type['heartbeat'])
+
 		# for a leader node
 		if self.is_leader:
 			# initiate time-out counts
 
 			# dict of type   [node_id : count of time-outs]
 			node_timeouts = {n_id:-1 for n_id in self.network_dict.keys()}
-			heartbeat_msg = Message(Msg_type['heartbeat'])
 
 			while True:
 				responded_nodes = []
@@ -74,11 +108,11 @@ class Node(object):
 				while not q.empty():
 					hmsg = q.get()
 					print("DEBUG_MSG: got heartbeat_msg from: ",(hmsg._source_host,hmsg._source_port))
-					responded_nodes.append((hmsg._source_host,hmsg._source_port))
+					responded_nodes.append(hmsg._msg_id[0])
 				
 				# correct time-out counts			
-				for n_id,val in self.network_dict.items():
-					if val not in responded_nodes:
+				for n_id in self.network_dict.keys():
+					if n_id not in responded_nodes:
 						node_timeouts[n_id] += 1
 					else:
 						node_timeouts[n_id] = 0
@@ -94,30 +128,59 @@ class Node(object):
 				for n_id in self.network_dict.keys():
 					# send messages to all using temporary port
 					with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-						s.connect((self.network_dict[n_id][0],self.network_dict[n_id][1]))
-						heartbeat_msg._source_host,heartbeat_msg._source_port=s.getsockname()
-						heartbeat_msg._recv_host,heartbeat_msg._recv_port = self.network_dict[n_id]
-						send_msg(s, heartbeat_msg)
+						try:
+							s.connect((self.network_dict[n_id][0],self.network_dict[n_id][1]))
+						except:
+							pass
+						else:
+							heartbeat_msg._source_host,heartbeat_msg._source_port=s.getsockname()
+							heartbeat_msg._recv_host,heartbeat_msg._recv_port = self.network_dict[n_id]
+							heartbeat_msg._msg_id = (self.node_id,threading.current_thread().ident)
+							send_msg(s, heartbeat_msg)
 
 				# re-starting timer
 				time.sleep(self.heartbeat_delay)
 		
 		# for a non-leader node
+
+		"""
+		respond to all heartbeats; if leader has sent a heartbeat, reset ldr_timeout_count to 0;
+		else, increase it by one. When it reaches threshold, declare leader to be dead
+		"""
 		else:
 			ldr_timeout_count = -1
 			while True:
 				q = self.thread_msg_qs[threading.current_thread().ident]
-				if not q.empty():
+				got_ldr_hbeat = False
+
+				while not q.empty():
 					hmsg = q.get()
 					print("DEBUG_MSG: got heartbeat_msg from: ",(hmsg._source_host,hmsg._source_port))
 					ldr_timeout_count =  0
-				else:
+
+					# reply to heartbeat
+					with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+						hbeat_id = hmsg._msg_id
+						hmsg_ip,hmsg_port = self.network_dict[hbeat_id]
+						if hbeat_id == self.ldr_id:
+							got_ldr_hbeat = True
+						try:
+							s.connect((hmsg_ip, hmsg_port))
+						except:
+							pass
+						else:
+							heartbeat_msg._source_host,heartbeat_msg._source_port=s.getsockname()
+							heartbeat_msg._recv_host,heartbeat_msg._recv_port = (hmsg_ip, hmsg_port)
+							heartbeat_msg._msg_id = (self.node_id,threading.current_thread().ident)
+							send_msg(s, heartbeat_msg)
+					
+				if not got_ldr_hbeat:
 					ldr_timeout_count += 1
 
 				# check if leader has failed
 				if ldr_timeout_count >= self.timeout_thresh:
 					print("Leader failure detected")
-					# TODO: initiate leader election protocol
+					leader_elect_thread = threading.Thread(target=self.ldr_elect_thread,args=())
 
 				# re-rstarting timer
 				time.sleep(self.ldr_heartbeat_delay)
@@ -153,14 +216,10 @@ class Node(object):
 						msg._source_port = client_address[1]
 						# find message type and send to the right thread
 						if Msg_type(msg._m_type) is Msg_type.heartbeat:
-							self.thread_msg_qs[self.heartbeat_tid].put(msg)
+							self.thread_msg_qs[heartbeat_tid].put(msg)
 
-						# # sending back ACK
-						# data = ("ACK - data received: "+str(data)).encode()
-						# message_queues[s].put(data)
-						# # add s as a connection waiting to send messages
-						# if s not in outputs:
-						#     outputs.append(s)
+						inputs.remove(s)
+						s.close()
 
 			for s in writable:
 				# If something has to be sent - send it. Else, remove connection from output queue

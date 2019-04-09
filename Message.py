@@ -24,7 +24,7 @@ class Message(object):
 		self._msg_id = msg_id
 		self._data_dict = data_dict
 
-	def get_data(field = None):
+	def get_data(self,field):
 		"""
 		params: field = for a particular data field in data_dict; None for whole dict
 

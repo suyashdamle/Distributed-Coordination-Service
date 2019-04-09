@@ -4,9 +4,11 @@ import pickle
 import struct
 
 class Msg_type(enum.Enum):
-	heartbeat = 1
-	read_req = 2
-	write_req = 3
+	heartbeat = 1		# heartbeat message - between leader and all + when needed, between others
+	read_req = 2		# 
+	write_req = 3		# 
+	ldr_elect = 4		# to indicate leader election in working - handled by separate thread
+	new_ldr_id = 5		# sent to declare that new leader has been elected & its id is sent
 	# TODO: add more!!
 
 def recv_msg(sock):
