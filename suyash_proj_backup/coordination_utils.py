@@ -7,17 +7,8 @@ class Msg_type(enum.Enum):
 	heartbeat = 1
 	read_req = 2
 	write_req = 3
-	add_node = 4
-	AN_ldr_info = 5 
-	AN_assign_id = 6		#Requesting leader to assign new id
-	AN_set_id = 7			#Leader replying with new id
-	AN_FS_data_req = 8
-	AN_FS_data = 9
-	AN_ready = 10
-	AN_success = 11
+	leaderelect = 4
 	# TODO: add more!!
-
-
 
 def recv_msg(sock):
 	"""
