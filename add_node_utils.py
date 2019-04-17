@@ -51,6 +51,7 @@ def add_node_protocol(self):
 	message = self.thread_msg_qs[self.main_thread_tid].get()
 	self.file_system_name = message.get_data('name')
 	file_system_size = message.get_data('size')
+	self.meta_data = message.get_data('meta_data')
 
 	print("File system name is ",self.file_system_name," size is ",file_system_size)
 
@@ -92,12 +93,12 @@ def assign_new_id(self, recv_host, recv_port):
 	self.last_node_id += 1
 
 	#send other nodes that a new node is added with the assigned node_id
-	for key,value in self.network_dict:
+	for key,value in self.network_dict.items():
 		with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
 			if value[2] is 1:
 				s.connect((value[0], value[1]))
-				send_msg(s,Message(Msg_type['AN_add_to_network']), data_dict = {'key': self.last_node_id,\
-																				'value': (recv_host,recv_port,1)})
+				send_msg(s,Message(Msg_type['AN_add_to_network'], data_dict = {'key': self.last_node_id,\
+																				'value': (recv_host,recv_port,1)}))
 		s.close()
 
 	self.network_dict[self.last_node_id] = (recv_host,recv_port,1)	#populate own table
@@ -117,7 +118,8 @@ def send_file_system(self, recv_host, recv_port):
 		file_size = os.path.getsize('file_system')
 		s.connect((recv_host, recv_port))
 		print("Preparing to send file system...")
-		send_msg(s, Message(Msg_type['AN_FS_data'], data_dict = {'name':'file_system_duplicate','size': file_size}))
+		send_msg(s, Message(Msg_type['AN_FS_data'], data_dict = {'name':'file_system_duplicate','size': file_size,\
+																'meta_data': self.meta_data}))
 		while True:
 			chunk = file_system.read(self.buffer_size)
 			if not chunk:

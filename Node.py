@@ -44,6 +44,7 @@ class Node(object):
 		self.sponsor_port = None
 		self.buffer_size = 10240
 		self.file_system_name = None
+		self.meta_data = None
 		# Thread-ids of some critical processes kept as instance variables
 		self.coordinator_tid = None
 		self.last_node_id = 1
@@ -57,6 +58,8 @@ class Node(object):
 		self.ldr_heartbeat_delay=5		# max how much delay could be expected from the leader bet heartbeats
 		self.AN_condition = threading.Condition()
 		if self.is_leader:
+			self.meta_data = {}
+			self.meta_data['./root'] = (0,'./root/',-1,[],False)
 			self.node_id = 1
 			self.ldr_ip = host
 			self.ldr_port = port
