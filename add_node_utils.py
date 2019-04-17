@@ -80,6 +80,7 @@ def add_node_protocol(self):
 					self.network_dict = message.get_data('network_dict')
 					break
 		print("Node added successfully !")
+
 # Function to send leader ip and leader port to the new node that is being added
 def send_AN_ldr_info(self, recv_host, recv_port):
 

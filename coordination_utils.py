@@ -9,12 +9,14 @@ class Msg_type(enum.Enum):
 	write_req = 3
 	add_node = 4
 	AN_ldr_info = 5 
-	AN_assign_id = 6		#Requesting leader to assign new id
-	AN_set_id = 7			#Leader replying with new id
+	AN_assign_id = 6		# Requesting leader to assign new id
+	AN_set_id = 7			# Leader replying with new id
 	AN_FS_data_req = 8
 	AN_FS_data = 9
 	AN_ready = 10
 	AN_success = 11
+	new_ldr_id = 12			# sent after creation of new leader by it
+	ldr_proposal = 13		# sent by any node to the prospective leader (least alive node-id)
 	# TODO: add more!!
 
 
