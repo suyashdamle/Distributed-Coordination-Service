@@ -156,6 +156,8 @@ def become_ldr_killer(self,thread_to_kill,responded_nodes):
 	self.ldr_id = self.node_id
 	self.ldr_port = self.PORT
 	self.ldr_ip = self.HOST
+	print("heartbeat restarted")
+
 	self.heartbeat_thread.join()
 	del self.thread_msg_qs[self.heartbeat_tid]
 	self.heartbeat_thread = threading.Thread(target = self.heartbeat_thread_fn, args=())
