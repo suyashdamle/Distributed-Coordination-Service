@@ -8,6 +8,7 @@ from _thread import *
 import pickle
 import enum
 import time
+import json
 
 # importing custom utility functions
 from coordination_utils import *
@@ -38,20 +39,29 @@ class Node(object):
 		self.timeout_thresh = 3			# number of timeouts, after which a node is declared dead
 		self.node_id = -1				# the node-id of this instance - changed during joining protocol
 		self.config_fname = config_fname
-		self.config_table = {'127.0.0.1': 64532} 		# TODO mentioned above
+		self.sponser_set = False  		# to ignore furthur messages if sponsor is set
+		self.sponsor_host = None
+		self.sponsor_port = None
+		self.buffer_size = 10240
+		self.file_system_name = None
 		# Thread-ids of some critical processes kept as instance variables
 		self.coordinator_tid = None
-		self.last_node_id = 0
+		self.last_node_id = 1
+		self.add_node = False	#becomes true when add node protocol is completed. Till then no write operation
+								#should take place
+		# self.config_table = {"127.0.0.1": 64532}
 		# present leader details
 		self.ldr_id = 1
 		self.ldr_ip = '127.0.0.1'
 		self.ldr_port = 64532
 		self.ldr_heartbeat_delay=5		# max how much delay could be expected from the leader bet heartbeats
+		self.AN_condition = threading.Condition()
 		if self.is_leader:
+			self.node_id = 1
 			self.ldr_ip = host
 			self.ldr_port = port
 
-				
+		
 
 		self.ldr_heartbeat_delay=100	# max how much delay could be expected from the leader bet heartbeats
 
@@ -67,6 +77,8 @@ class Node(object):
 		print(type(self.is_leader))
 		print(self.is_leader)
 		if not self.is_leader:
+			with open('standard_ip.json', 'r') as fp:
+				self.config_table = json.load(fp)
 			self.main_thread_tid = threading.current_thread().ident 	# find the tid of main_thread
 			self.thread_msg_qs[self.main_thread_tid] = queue.Queue()	# this queue will have messages related to add_node
 			self.add_node_protocol()									# get node added to the network			
@@ -209,6 +221,7 @@ class Node(object):
 
 	def coordination_thread_fn(self, heartbeat_tid):
 
+		print("Listening on port :",self.PORT)
 		self.thread_msg_qs[threading.get_ident()] = queue.Queue()
 		server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 		server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1) # prevents "already in use" errors
@@ -218,7 +231,6 @@ class Node(object):
 		inputs = [server]
 		outputs = []
 		message_queues = {} # message queue dict
-
 		while inputs:
 			readable, writable, exceptional = select.select(inputs, outputs, inputs)
 			for s in readable:
@@ -234,26 +246,50 @@ class Node(object):
 					# if some message has been received - be it in part
 					msg = recv_msg(connection)	#server
 					if msg:
-						print("DEBUG_MSG: data received: ")
+						print("DEBUG_MSG: data received: Msg_type:", Msg_type(msg._m_type))
 						msg._source_host = client_address[0]
 						msg._source_port = client_address[1]
 						# find message type and send to the right thread
 						if Msg_type(msg._m_type) is Msg_type.heartbeat:
 							self.thread_msg_qs[heartbeat_tid].put(msg)
-						elif Msg_type(msg._m_type) is Msg_type.AN_ldr_info:
-							self.thread_msg_qs[self.main_thread_tid].put(msg)
 
-						elif Msg_type(msg._m_type) is Msg_type.AN_set_id:
-							self.thread_msg_qs[self.main_thread_tid].put(msg)
+						elif Msg_type(msg._m_type) is Msg_type.AN_ldr_info:
+							if self.sponser_set is False:		#if not received any sponsor reply yet
+								self.sponser_set = True
+								self.thread_msg_qs[self.main_thread_tid].put(msg)
+								with self.AN_condition:
+									self.AN_condition.notifyAll()	#ask thread to wake up
+							else:
+
+								pass
+
+						#new node to be added to table
+						elif Msg_type(msg._m_type) is Msg_type.AN_add_to_network:
+							self.network_dict[msg.get_data('key')] = msg.get_data('value')	#populate network table
+							self.last_node_id = msg.get_data('key')		#keep the field updated in case leader fails
+
+						elif Msg_type(msg._m_type) is Msg_type.AN_set_id:	#new id assigned by leader
+							if msg._source_host == self.ldr_ip and msg.get_data('port') == self.ldr_port:
+								self.thread_msg_qs[self.main_thread_tid].put(msg)
+								with self.AN_condition:
+									self.AN_condition.notifyAll()		#ask thread to wake up
 
 						elif Msg_type(msg._m_type) is Msg_type.AN_FS_data:
+							# print('@@@@@@@@@')
 							self.thread_msg_qs[self.main_thread_tid].put(msg)
+							if self.file_system_name is None:
+								# print("###########")
+								with self.AN_condition:
+										self.AN_condition.notifyAll()		#ask thread to wake up
+							else:
+								pass
+							continue
 
 						elif Msg_type(msg._m_type) is Msg_type.add_node:	#sponsor node on receiving 'add_node'
 							add_node_thread = threading.Thread(target = self.send_AN_ldr_info, args=(msg._source_host,msg.get_data('port'), ))
 							add_node_thread.start()
 
-						elif Msg_type(msg._m_type) is Msg_type.AN_assign_id:
+						elif Msg_type(msg._m_type) is Msg_type.AN_assign_id:	#ask leader for new id
 							AN_assign_id_thread = threading.Thread(target = self.assign_new_id, args=(msg._source_host,msg.get_data('port'), ))
 							AN_assign_id_thread.start()
 
