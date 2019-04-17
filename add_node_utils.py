@@ -58,37 +58,19 @@ def add_node_protocol(self):
 	current_size = 0
 
 	while True:
-		
+		# with self.AN_condition:
+		# 	self.AN_condition.wait()
 		if self.thread_msg_qs[self.main_thread_tid].empty() is False:
 			message = self.thread_msg_qs[self.main_thread_tid].get()
 			file_pointer.write(message.get_data('data'))
 			current_size+= sys.getsizeof(message.get_data('data'))
+			print("File size transferred ",current_size)
 			if current_size >= file_system_size:
 				break
 
 	file_pointer.close()
 
-	# print("File system data received")
-	# with open(file_system_name, "w") as f:
-	# 	f.write(file_system)
 
-	# f.close()
-
-	# # inform leader that the node is ready to be included in the network
-	# with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-	# 	s.connect((self.ldr_ip,self.ldr_port))
-	# 	send_msg(s, Message(Msg_type['AN_ready'], data_dict = {'port': self.PORT, 'id': self.node_id }))
-
-	# s.close()
-
-	# while True:
-
-	# 	if not self.thread_msg_qs[self.main_thread_tid].empty():
-	# 		message = self.thread_msg_qs[self.main_thread_tid].get()
-
-	# 		if message._m_type is Msg_type['AN_success']:		# leader confirming added to network successful
-	# 			self.network_dict = message.get_data('network_dict')
-	# 			break
 	self.add_node = True
 	print("Node added successfully !")
 
@@ -166,28 +148,7 @@ def send_msg_add_node(standard_IP_table, PORT):
 			send_msg(s, message)
 		s.close()
 
-def AN_to_network(self,message):
 
-	#inform other nodes that a new node is added
-	# for key,value in self.network_dict:
-
-	# 	if value[2] is True:		#node alive
-	# 		with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-	# 			s.connect(value[0], value[1])
-	# 			send_msg(s, Message(Msg_type['AN_new_node'], data_dict = {'id': key, 'value': value,\
-	# 															'last_node_id': self.last_node_id}))
-
-	# 		s.close()
-
-	#update node table. true stands for alive
-	self.network_dict[message.get_data('id')] = (message._source_host,message.get_data('port'),True) 
-
-	with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-		s.connect((message._source_host, message.get_data('port')))
-		send_msg(s, Message(Msg_type['AN_success'], data_dict = {'id': self.network_dict,\
-																 'last_node_id': self.last_node_id}))
-
-	s.close()
 
 
 

@@ -88,8 +88,7 @@ class Node(object):
 
 		
 		
-	from add_node_utils import add_node_protocol,send_AN_ldr_info,assign_new_id,send_file_system,\
-								AN_to_network
+	from add_node_utils import add_node_protocol,send_AN_ldr_info,assign_new_id,send_file_system
 	
 
 	def thread_manager(self):
