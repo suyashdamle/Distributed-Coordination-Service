@@ -27,7 +27,7 @@ class Node(object):
 	def __init__(self, config_fname=None,host='127.0.0.1',port=64532, is_leader = False):
 
 		# instance members
-		# TODO : read config file and populate lists and metadata
+		# TODO : read config file a#delete node fromnd populate lists and metadata
 		# TODO : create an dictionary object containing standard IP's as key and port number as value
 		self.HOST = host  				# Standard loopback interface address (localhost)
 		self.PORT = port       			# Port to listen on
@@ -266,6 +266,30 @@ class Node(object):
 
 						elif Msg_type(msg._m_type) is Msg_type.AN_ready:
 							self.AN_to_network(msg)
+						
+						elif Msg_type(msg._m_type) is Msg_type.delete_node:
+							#delete node from net directory
+							del self.network_dict[msg.dict_data]
+							#broadcast if leader
+							if self.is_leader:
+								for s in self.network_dict:
+									send_msg(msg)
+							
+						elif Msg_type(msg._m_type) is Msg_type.init_delete:
+							if self.is_leader:
+								new_ldr_id
+								#Get next highest key and broadcast new_ldr_id.
+								#On recieving ack initiate delete
+
+							#send delete_msg to leader and stop
+							delete_msg = Message(Msg_type['delete_node'])
+							delete_msg._source_host,delete_msg._source_port=s.getsockname()
+							heartbeat_msg._recv_host,heartbeat_msg._recv_port = self.network_dict[ldr_id]
+							send_msg(s, delete_msg)
+
+							#stop
+
+						
 						# # sending back ACK
 						# data = ("ACK - data received: "+str(data)).encode()
 						# message_queues[s].put(data)

@@ -15,6 +15,8 @@ class Msg_type(enum.Enum):
 	AN_FS_data = 9
 	AN_ready = 10
 	AN_success = 11
+	delete_node = 12		#Node requesting deletion
+	init_delete = 13		#client commanding deletion
 	# TODO: add more!!
 
 
