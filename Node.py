@@ -44,7 +44,8 @@ class Node(object):
 		self.sponsor_port = None
 		self.buffer_size = 10240
 		self.file_system_name = None
-		self.meta_data = None
+		self.meta_data = {}
+		self.add_node_timeout = 2
 		# Thread-ids of some critical processes kept as instance variables
 		self.coordinator_tid = None
 		self.last_node_id = 1

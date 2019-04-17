@@ -4,18 +4,37 @@ import socket
 from coordination_utils import *
 import os
 import sys
+import random
+import _thread
+
+def exception_handler(IP,PORT):
+	print("Could not connect to IP ",IP,' Port ',PORT)
 
 def add_node_protocol(self):
 	'''
 	Add the node to the network
 	'''
+	timeout = False
 	print("Add Node protocol started !")
+	print("Asking Leader Information from Standard IP's ")
 	#send message "add_node" to standard IP's
 	send_msg_add_node(self.config_table, self.PORT)
 
 	with self.AN_condition:
-		self.AN_condition.wait()	# blocking - Waiting for reply from sponsor node 
+		timeout = self.AN_condition.wait(timeout = self.add_node_timeout)	# blocking - Waiting for reply from sponsor node 
 	
+	if timeout is False:
+		print("No reply from any node... Sending request again")
+		send_msg_add_node(self.config_table, self.PORT)
+		with self.AN_condition:
+			timeout = self.AN_condition.wait(timeout = self.add_node_timeout)	# blocking - Waiting for reply from sponsor node 
+			
+		if timeout is False:
+			print("Still no response. Exiting...")
+			os._exit(0)
+
+
+
 	message = self.thread_msg_qs[self.main_thread_tid].get()
 	self.sponsor_host = message._source_host
 	self.sponsor_port = message.get_data('port')		# Port on which sponsor server is listening							
@@ -26,12 +45,19 @@ def add_node_protocol(self):
 	print("Sponsor_host is : ",self.sponsor_host," Sponsor port is : ",self.sponsor_port)
 	print("Message recieved: Leader ip :", self.ldr_ip, "Leader port :",self.ldr_port)
 	
-	with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-		s.connect((self.ldr_ip,self.ldr_port))
-		send_msg(s, Message(Msg_type['AN_assign_id'], data_dict = {'port': self.PORT }))	# Contacting leader to give a new id
+	try:
+		with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+			s.connect((self.ldr_ip,self.ldr_port))
+			send_msg(s, Message(Msg_type['AN_assign_id'], data_dict = {'port': self.PORT }))	# Contacting leader to give a new id
+	except:
+		exception_handler(self.ldr_ip,self.ldr_port)
 
 	with self.AN_condition:
-		self.AN_condition.wait()	# blocking - Waiting for leader to assign ID
+		timeout = self.AN_condition.wait(timeout = self.add_node_timeout)	# blocking - Waiting for leader to assign ID
+
+	if timeout is False:
+		print("Leader not responding. Exiting...")	
+		os._exit(0)
 
 	message = self.thread_msg_qs[self.main_thread_tid].get()
 	self.node_id = message.get_data('id')
@@ -39,15 +65,23 @@ def add_node_protocol(self):
 	print("Message recieved: New id assigned :", self.node_id)
 
 	#Get file system from sponsored node
-	with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-		s.connect((self.sponsor_host, self.sponsor_port))
-		send_msg(s, Message(Msg_type['AN_FS_data_req'], data_dict = {'port': self.PORT }))
-
-	s.close()		
+	try:
+		with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+			s.connect((self.sponsor_host, self.sponsor_port))
+			send_msg(s, Message(Msg_type['AN_FS_data_req'], data_dict = {'port': self.PORT }))
+		s.close()
+	except:
+		print("Not able to connect to sponsor node not responding. Exiting...")
+		os._exit(0)
+		
 	
 	with self.AN_condition:
-		self.AN_condition.wait()
+		timeout = self.AN_condition.wait(timeout = self.add_node_timeout)
 	
+	if timeout is False:
+		print("Sponsor node not responding. Exiting...")
+		os._exit(0)
+
 	message = self.thread_msg_qs[self.main_thread_tid].get()
 	self.file_system_name = message.get_data('name')
 	file_system_size = message.get_data('size')
@@ -58,16 +92,20 @@ def add_node_protocol(self):
 	file_pointer = open(self.file_system_name,'wb')
 	current_size = 0
 
-	while True:
-		# with self.AN_condition:
-		# 	self.AN_condition.wait()
-		if self.thread_msg_qs[self.main_thread_tid].empty() is False:
-			message = self.thread_msg_qs[self.main_thread_tid].get()
-			file_pointer.write(message.get_data('data'))
-			current_size+= sys.getsizeof(message.get_data('data'))
-			print("File size transferred ",current_size)
-			if current_size >= file_system_size:
-				break
+	try:
+		while True:
+			# with self.AN_condition:
+			# 	self.AN_condition.wait()
+			if self.thread_msg_qs[self.main_thread_tid].empty() is False:
+				message = self.thread_msg_qs[self.main_thread_tid].get()
+				file_pointer.write(message.get_data('data'))
+				current_size+= sys.getsizeof(message.get_data('data'))
+				print("File size transferred ",current_size)
+				if current_size >= file_system_size:
+					break
+	except:
+		print("Connection broken. File System tranfer failed. Exiting...")
+		os._exit(0)
 
 	file_pointer.close()
 
@@ -145,9 +183,13 @@ def send_msg_add_node(standard_IP_table, PORT):
 		data["port"] = PORT
 		message = Message(Msg_type['add_node'],source_host = source_host, source_port = source_port,\
 				recv_host = recv_host, recv_port = recv_port, data_dict = data)
-		with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-			s.connect((message._recv_host,message._recv_port))	
-			send_msg(s, message)
+		try:
+			with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+				s.connect((message._recv_host,message._recv_port))	
+				send_msg(s, message)
+		except:
+			exception_handler(message._recv_host,message._recv_port)
+
 		s.close()
 
 
