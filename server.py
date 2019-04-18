@@ -4,16 +4,19 @@ import sys
 import queue
 
 HOST = ''           #127.0.0.1 Standard loopback interface address (localhost)
-PORT = 65432        # Port to listen on
+PORT = 64532        # Port to listen on
 
-server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1) # prevents "already in use" errors
-server.setblocking(0)
-server.bind((HOST, PORT))
-server.listen(5)
+server_tcp = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+server_tcp.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1) # prevents "already in use" errors
+server_tcp.setblocking(0)
+server_tcp.bind((HOST, PORT))
+server_tcp.listen(5)
+
+server_udp = socket.socket(socket.AF_INET,socket.SOCK_DGRAM)
+server_udp.bind((HOST,PORT))
 
 # 3 lists
-inputs = [server]
+inputs = [server_udp,server_tcp]
 outputs = []
 message_queues = {} # message queue dict
 
@@ -26,7 +29,7 @@ while inputs:
     #... (3)or, an exception
     for s in readable:
         # s is a socket object
-        if s is server:
+        if s is server_tcp:
             # for new connections
             connection, client_address = s.accept()
             connection.setblocking(0)
@@ -34,8 +37,17 @@ while inputs:
             print("Received connection request from: ",client_address)
             # creating a message queue for each connection
             message_queues[connection] = queue.Queue()
+
+        elif s is server_udp:
+            # if data received over UDP
+            data, addr = s.recvfrom(1024)
+            if data:
+                print("data received over UDP: ", data)
+                data = ("ACK - data received: "+str(data)).encode()
+                s.sendto(data,addr)
+
         else:
-            # if some data has been received
+            # if some data has been received on TCP connection
             data = s.recv(1024)
             if data:
                 print("data received: ",data)
@@ -48,14 +60,7 @@ while inputs:
                 # add s as a connection waiting to send messages
                 if s not in outputs:
                     outputs.append(s)
-            # else:
-            #     # TODO: why is this condition needed? - socket error?
-            #     # if no data is readable
-            #     if s in outputs:
-            #         outputs.remove(s)
-            #     inputs.remove(s)
-            #     s.close()
-            #     del message_queues[s]
+
 
     for s in writable:
         # If something has to be sent - send it. Else, remove connection from output queue

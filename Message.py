@@ -31,6 +31,8 @@ class Message(object):
 		"""
 		if field is None:
 			return self._data_dict
+		elif self._data_dict is None:
+			return None
 		else :
 			if field not in self._data_dict:
 				return None

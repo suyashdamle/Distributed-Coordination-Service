@@ -1,9 +1,9 @@
-from Message import message
+from Message import Message
 import socket
 from coordination_utils import *
 import threading
 import os
-
+import queue
 
 #should delete entries of queue in dict at exit point of each thread
 #for this, create a func which cleans ALL dicts
@@ -28,22 +28,24 @@ def send_msg_to_client(self, client_ip, client_port, status, sock, write_req_id)
 	reply_data = {}
 	reply_data['status'] = status
 	reply_msg = Message(Msg_type['write_reply'], recv_host = client_ip, recv_port = client_port, data_dict = reply_data)
+	reply_msg._msg_id = (self.node_id, threading.current_thread().ident)
 	send_msg(sock, reply_msg)
 	#close the socket
 	sock.close()
 	#clean dicts
-	clear_write_req_data(write_req_id)
+	self.clear_write_req_data(write_req_id)
 	return
 
 def send_new_msg(self, ip, port, msg):
+	msg._msg_id = (self.node_id, threading.current_thread().ident)
 	try:
 		with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
 			s.connect((ip, port))
-			send_msg(s, msgdata)
+			send_msg(s, msg)
 		s.close()
 		return True
 	except Exception as e:
-		print("Exception encountered while sending message from "+str(ip)+":"str(port))
+		print("Exception encountered while sending message to "+str(ip)+":"+str(port))
 		print(e)
 		return False
 
@@ -54,9 +56,9 @@ def write_req_handler(self, msg, cond, write_req_id, sock):
 	client_port = msg._source_port
 	data['write_req_id'] = write_req_id
 	route_msg = Message(Msg_type['WR_ROUTE'], recv_host = self.ldr_ip, recv_port = self.ldr_port, data_dict = data)
-	ret = send_new_msg(self.ldr_ip, self.ldr_port, route_msg)
+	ret = self.send_new_msg(self.ldr_ip, self.ldr_port, route_msg)
 	if not ret:
-		send_msg_to_client(client_ip, client_port, -1, sock, write_req_id)
+		self.send_msg_to_client(client_ip, client_port, -1, sock, write_req_id)
 		return	
 
 	#so now initial node(might be leader as well) is running this function and will inform client abt success failure from here itself
@@ -67,7 +69,7 @@ def write_req_handler(self, msg, cond, write_req_id, sock):
 	q = self.thread_msg_qs[threading.current_thread().ident]
 	if q.empty() or timeout is False:
 		#there is some error, should report it
-		send_msg_to_client(client_ip, client_port, -1, sock, write_req_id)
+		self.send_msg_to_client(client_ip, client_port, -1, sock, write_req_id)
 		return
 	else:
 		ldr_reply_msg = q.get()
@@ -75,12 +77,12 @@ def write_req_handler(self, msg, cond, write_req_id, sock):
 	if Msg_type(ldr_reply_msg._m_type) is Msg_type.WR_REPLY:
 		succ = ldr_reply_msg._data_dict['write_succ']
 		if succ:
-			send_msg_to_client(client_ip, client_port, +1, sock, write_req_id)
+			self.send_msg_to_client(client_ip, client_port, +1, sock, write_req_id)
 		else:
-			send_msg_to_client(client_ip, client_port, -1, sock, write_req_id)
+			self.send_msg_to_client(client_ip, client_port, -1, sock, write_req_id)
 	else: 
 		#some error
-		send_msg_to_client(client_ip, client_port, -1, sock, write_req_id)
+		self.send_msg_to_client(client_ip, client_port, -1, sock, write_req_id)
 		pass
 
 	return
@@ -88,20 +90,21 @@ def write_req_handler(self, msg, cond, write_req_id, sock):
 def routed_write_handler(self, msg, cond):
 	if not self.is_leader :
 		# report some error, as routed write req must only be received by leader
-		reply_node_ip  = msg._source_host
-		reply_node_port = msg._source_port
+		source_nid = msg._msg_id[0]
+		reply_node_ip  = self.network_dict[source_nid][0]
+		reply_node_port = self.network_dict[source_nid][1]
 		write_req_id = msg._data_dict['write_req_id']
 		reply_data = {}
 		reply_data['write_req_id'] = write_req_id
 		reply_data['write_succ'] = False
 		reply_msg = Message(Msg_type['WR_REPLY'], recv_host = reply_node_ip, recv_port = reply_node_port, data_dict = reply_data)
-		ret = send_new_msg(reply_node_ip, reply_node_port, reply_msg)
+		ret = self.send_new_msg(reply_node_ip, reply_node_port, reply_msg)
 		if not ret:
 			pass
 		#no need to clean anything here, as no queue/write_id is generated yet
 	else :
 		#start 2PC	
-		two_phase_commit(self, msg, cond)
+		self.two_phase_commit(msg, cond)
 	return
 
 
@@ -116,8 +119,9 @@ def two_phase_commit(self, msg, cond):
 	self.thread_msg_qs[threading.current_thread().ident] = queue.Queue()
 	self.write_conditions[curr_write_id] = cond
 
-	reply_node_ip  = msg._source_host
-	reply_node_port = msg._source_port
+	source_nid = msg._msg_id[0]
+	reply_node_ip  = self.network_dict[source_nid][0]
+	reply_node_port = self.network_dict[source_nid][1]
 	write_req_id = msg._data_dict['write_req_id']
 	reply_data = {}
 	reply_data['write_req_id'] = write_req_id
@@ -150,14 +154,14 @@ def two_phase_commit(self, msg, cond):
 			pass		
 
 		#write newer version (go through directory structure and write)
-		if not os.exists(filedir):
+		if not os.path.exists(filedir):
 			#need to create the directory first
 			os.makedirs(filedir)
 
 		try:
 			with open(filepath, 'wb') as f:
-			f.write(metadata['file'])
-			f.close()
+				f.write(msgdata['file'])
+				f.close()
 			#newer version successfully written
 		except IOError as e:
 			printf("Exception : Error writing to file, will abort\n", filepath)
@@ -170,21 +174,21 @@ def two_phase_commit(self, msg, cond):
 			#send ABORT to reply_node, so that it can forward it to client
 			reply_data['write_succ'] = write_succ
 			reply_msg = Message(Msg_type['WR_REPLY'], recv_host = reply_node_ip, recv_port = reply_node_port, data_dict = reply_data)
-			ret = send_new_msg(reply_node_ip, reply_node_port, reply_msg)
+			ret = self.send_new_msg(reply_node_ip, reply_node_port, reply_msg)
 			if not ret:
 				print("Failed to send ABORT message to node connected to client")
-			clear_write_data(curr_write_id)
+			self.clear_write_data(curr_write_id)
 			return
 
 		#send COMMIT_REQ message to all cohorts
 		msgdata['write_id'] = curr_write_id
 		COMMIT_REQ_msg = Message(Msg_type['WR_COMMIT_REQ'], data_dict=msgdata)
 		for node_id, ip_port in self.network_dict.items():
-			if ip_port[0] == self.ldr_ip && ip_port[1] == self.ldr_port :
+			if ip_port[0] == self.ldr_ip  and ip_port[1] == self.ldr_port :
 				continue
 			tries = 0
 			while tries < self.max_tries:
-				ret = send_new_msg(ip_port[0], ip_port[1], COMMIT_REQ_msg)
+				ret = self.send_new_msg(ip_port[0], ip_port[1], COMMIT_REQ_msg)
 				tries += 1
 				if not ret:
 					if tries == self.max_tries:
@@ -200,10 +204,10 @@ def two_phase_commit(self, msg, cond):
 		fail = False
 
 		#hoping n_active_nodes is dynamic (changes on addition/crash of nodes)
-		while(n_agreed+n_abort < n_active_nodes-1) :
+		while(n_agreed+n_abort < self.n_active_nodes-1) :
 			timeout = cond.wait(timeout = self.timeout_2pc)
 			if timeout is False:
-				if n_agreed == n_active_nodes-1:
+				if n_agreed == self.n_active_nodes-1:
 					write_succ = True
 				else :
 					fail = True
@@ -231,7 +235,7 @@ def two_phase_commit(self, msg, cond):
 					f.close()
 				del older
 			reply_msg = Message(Msg_type['WR_REPLY'], recv_host = reply_node_ip, recv_port = reply_node_port, data_dict = reply_data)
-			ret = send_new_msg(reply_node_ip, reply_node_port, reply_msg)
+			ret = self.send_new_msg(reply_node_ip, reply_node_port, reply_msg)
 			if not ret:
 				print("Failed to send Failure-REPLY message to node connected to client")
 
@@ -239,10 +243,10 @@ def two_phase_commit(self, msg, cond):
 		if write_succ :
 			#if all AGREED, leader commits the changes
 			del older	#or older = None
-			version_no = self.meta_data[filepath][2]
-			version_no += 1
-			self.meta_data[filepath][2] = version_no
-			msgdata['version_no'] = version_no
+			if filepath not in self.meta_data:
+				self.meta_data[filepath] = [1, filepath, 0, [], False]
+			self.meta_data[filepath][2] += 1
+			msgdata['metadata'] = self.meta_data[filepath]
 			#send COMMIT message to all
 			COMMIT_msg = Message(Msg_type['WR_COMMIT'], data_dict=msgdata)
 			for node_id, ip_port in self.network_dict.items():
@@ -250,7 +254,7 @@ def two_phase_commit(self, msg, cond):
 					continue
 				tries = 0
 				while tries < self.max_tries:
-					ret = send_new_msg(ip_port[0], ip_port[1], COMMIT_msg)
+					ret = self.send_new_msg(ip_port[0], ip_port[1], COMMIT_msg)
 					tries += 1
 					if not ret:
 						if tries == self.max_tries:
@@ -265,18 +269,18 @@ def two_phase_commit(self, msg, cond):
 			for node_id, ip_port in self.network_dict.items():
 				if ip_port[0] == self.ldr_ip and ip_port[1] == self.ldr_port :
 					continue
-				ret = send_new_msg(ip_port[0], ip_port[1], ABORT_msg)
+				ret = self.send_new_msg(ip_port[0], ip_port[1], ABORT_msg)
 				if not ret:
 					print("Failed to send ABORT message")
-			clear_write_data(curr_write_id)
+			self.clear_write_data(curr_write_id)
 			return
 
 		n_acks = 0
 		#wait for ACK from all
-		while n_acks < n_active_nodes-1:
+		while n_acks < self.n_active_nodes-1:
 			timeout = cond.wait(timeout = self.timeout_write)
 			if timeout is False:
-				if n_ack == n_active_nodes-1:
+				if n_acks == self.n_active_nodes-1:
 					write_succ = True
 				else :
 					write_succ = False
@@ -284,14 +288,14 @@ def two_phase_commit(self, msg, cond):
 			while not q.empty():
 				new_msg = q.get()
 				if Msg_type(new_msg._m_type) is Msg_type.WR_ACK:
-					n_ack += 1
+					n_acks += 1
 
 		#send a "REPLY" msg to reply_node
 		reply_data['write_succ'] = write_succ
-		reply_msg = Message(Msg_type['WR_REPLY'], recv_host = self.reply_node_ip, recv_port = self.reply_node_port, data_dict = reply_data)
+		reply_msg = Message(Msg_type['WR_REPLY'], recv_host = reply_node_ip, recv_port = reply_node_port, data_dict = reply_data)
 		tries = 0
 		while tries < self.max_tries:
-			ret = send_new_msg(reply_node_ip, reply_node_port, reply_msg)
+			ret = self.send_new_msg(reply_node_ip, reply_node_port, reply_msg)
 			tries += 1
 			if not ret:
 				if tries == self.max_tries:
@@ -300,7 +304,7 @@ def two_phase_commit(self, msg, cond):
 					print("Try : "+str(tries)+" - Failed to send REPLY message to node connected to client, retrying")
 			else:
 				break
-		clear_write_data(curr_write_id)
+		self.clear_write_data(curr_write_id)
 		return
 
 
@@ -318,6 +322,9 @@ def non_leader_write_handler(self, msg, cond):
 	filepath = filedir + '/' + filename
 	exists = os.path.exists(filepath)
 	older = None
+	source_nid = msg._msg_id[0]
+	reply_node_ip  = self.network_dict[source_nid][0]
+	reply_node_port = self.network_dict[source_nid][1]
 	#store older version only if file existed previously
 	if exists:
 		try :
@@ -332,13 +339,13 @@ def non_leader_write_handler(self, msg, cond):
 		pass		
 
 	#write newer version (go through directory structure and write)
-	if not os.exists(filedir):
+	if not os.path.exists(filedir):
 		#need to create the directory first
 		os.makedirs(filedir)
 	try:
 		with open(filepath, 'wb') as f:
-		f.write(metadata['file'])
-		f.close()
+			f.write(msgdata['file'])
+			f.close()
 		#newer version successfully written
 	except IOError as e:
 		printf("Exception : Error writing to file, will abort\n", filepath)
@@ -351,9 +358,9 @@ def non_leader_write_handler(self, msg, cond):
 		new_msg = Message(Msg_type['WR_AGREED'], data_dict=data_dict)
 	else:
 		new_msg = Message(Msg_type['WR_ABORT'], data_dict=data_dict)
-
+	tries = 0
 	while tries < self.max_tries:
-		ret = send_new_msg(msg._source_host, msg._source_port, new_msg)
+		ret = self.send_new_msg(reply_node_ip, reply_node_port, new_msg)
 		tries += 1
 		if not ret:
 			if tries == self.max_tries:
@@ -364,7 +371,7 @@ def non_leader_write_handler(self, msg, cond):
 			break
 
 	if not write_succ :
-		clear_write_data(curr_write_id)
+		self.clear_write_data(curr_write_id)
 		return
 
 	#will also receive COMMIT message in its queue, need to wait till that time
@@ -376,7 +383,7 @@ def non_leader_write_handler(self, msg, cond):
 	q = self.thread_msg_qs[threading.current_thread().ident]
 	if q.empty() or timeout is False:
 		#there is some error, should report it
-		clear_write_data(curr_write_id)
+		self.clear_write_data(curr_write_id)
 		return
 	else:
 		reply_msg = q.get()
@@ -397,11 +404,9 @@ def non_leader_write_handler(self, msg, cond):
 		#then on receiving COMMIT msg, discard the older version
 		del older	#or older = None
 		#update version no and send ACK
-		version_no = reply_msg._data_dict['version_no']
-		meta_data[filepath][2] = version_no
-
+		self.meta_data[filepath] = reply_msg._data_dict['metadata']
 		while tries < self.max_tries:
-			ret = send_new_msg(msg._source_host, msg._source_port, Message(Msg_type['WR_ACK'], data_dict=data_dict))
+			ret = self.send_new_msg(reply_node_ip, reply_node_port, Message(Msg_type['WR_ACK'], data_dict=data_dict))
 			tries += 1
 			if not ret:
 				if tries == self.max_tries:
@@ -416,5 +421,5 @@ def non_leader_write_handler(self, msg, cond):
 		pass
 
 	#clear queue
-	clear_write_data(curr_write_id)
+	self.clear_write_data(curr_write_id)
 	return
