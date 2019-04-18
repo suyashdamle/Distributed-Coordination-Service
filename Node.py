@@ -30,7 +30,7 @@ class Node(object):
 	def __init__(self, config_fname=None,host='127.0.0.1',port=64532, is_leader = False):
 
 		# instance members
-		# TODO : read config file and populate lists and metadata
+		# TODO : read config file a#delete node fromnd populate lists and metadata
 		# TODO : create an dictionary object containing standard IP's as key and port number as value
 		self.HOST = host  				# Standard loopback interface address (localhost)
 		self.PORT = port       			# Port to listen on
@@ -77,6 +77,7 @@ class Node(object):
 		self.ldr_ip = None
 		self.ldr_port = None
 		self.ldr_heartbeat_delay=5		# max how much delay could be expected from the leader bet heartbeats
+		self.is_sponsor = False
 		self.AN_condition = threading.Condition()
 		self.ldr_timeout_count = -1 	# for heartbeat thread at non - leader nodes
 
@@ -95,8 +96,6 @@ class Node(object):
 		self.wrreq_id = 0				# When any node receives a write req, it forwards it to leader while maintaining connection with client
 										#so to differentiate with the client connected thread, this var will be used 
 		self.wrreq_tids = {}			# dict of {write_req_id : thread_id}
-		#TODO - update this value in add/delete node
-		self.n_active_nodes = 2
 		self.timeout_write_req = 60		# in seconds -- very large, as whole 2PC protocol to be run
 		self.timeout_write = 10			# in seconds -- 
 		self.timeout_2pc = 30			# in seconds -- should be large as file needs to be written
@@ -125,8 +124,10 @@ class Node(object):
 		
 	from ldr_elect_utils import ldrelect_thread_fn,ldr_agreement_fn, become_ldr_thread_fn
 	from add_node_utils import add_node_protocol,send_AN_ldr_info,assign_new_id,send_file_system
+	from delete_node_utils import del_from_network_dict,init_delete
 	from write_utils import write_req_handler, routed_write_handler, non_leader_write_handler, two_phase_commit, clear_write_req_data, clear_write_data, send_msg_to_client, send_new_msg
 	from read_utils import send_file
+
 	
 
 	def thread_manager(self):
@@ -282,9 +283,9 @@ class Node(object):
 					self.ldr_stat_lock.release()
 				# re-rstarting timer
 				time.sleep(self.ldr_heartbeat_delay)
-	
-	
 
+
+			
 	def coordination_thread_fn(self, heartbeat_tid):
 
 		print("Listening on port :",self.PORT)
@@ -428,7 +429,7 @@ class Node(object):
 									self.AN_condition.notifyAll()		#ask thread to wake up
 
 						elif Msg_type(msg._m_type) is Msg_type.AN_FS_data:							
-							self.file_system_port = s
+							# self.file_system_port = s
 							self.thread_msg_qs[self.main_thread_tid].put(msg)
 							if self.file_system_name is None:
 								with self.AN_condition:
@@ -473,6 +474,35 @@ class Node(object):
 								# send to become_leader_thread and let it take :
 								self.thread_msg_qs[become_ldr_tid].put(msg)
 								become_ldr_evnt.set()
+							
+							# print("xxxxxxxxxxx")
+							# print(msg.get_data('id'))
+							# print(msg.get_data('ip'))
+							# print(msg.get_data('port'))
+
+
+							if msg.get_data('type')=='del_ldr':
+								self.ldr_id = msg.get_data('id')
+								self.ldr_ip = msg.get_data('ip')
+								self.ldr_port = msg.get_data('port')
+								self.ldr_alive = True
+								print("DEBUG_MSG: New leader:", self.ldr_id)
+
+								if self.ldr_id == self.node_id:
+									self.is_leader = True
+								
+								# new_msg = Message(Msg_type['new_ldr_id'],msg_id = (self.node_id,threading.current_thread().ident))
+								# new_recv = (self.network_dict[msg._msg_id[0]][0],self.network_dict[msg._msg_id[0]][1])
+								# new_msg._data={'type':'ldr_changed','ans':'ACK'}
+								# try:
+								# 	s.connect(new_recv)
+								# except:
+								# 	pass
+								# else:
+								# 	new_msg._source_host,new_msg._source_port = s.getsockname()
+								# 	new_msg._recv_host,new_msg._recv_port = new_recv
+								# 	send_msg(s, new_msg)
+
 
 							# if it is a msg from some other node and seeks vote for itself
 							else:
@@ -497,6 +527,31 @@ class Node(object):
 								self.ldr_alive = True
 								self.ldr_stat_lock.release()
 
+						
+						elif Msg_type(msg._m_type) is Msg_type.delete_node:
+							delete_node_thread = threading.Thread(target = self.del_from_network_dict, args=(msg,))
+							delete_node_thread.start()
+							
+							# self.del_from_network_dict(msg)
+							
+							
+						elif Msg_type(msg._m_type) is Msg_type.init_delete:
+							# init_delete_thread = threading.Thread(target = self.init_delete, args=())
+							# init_delete_thread_id = init_delete_thread.ident
+							# self.thread_msg_qs[init_delete_thread_id] = queue.Queue()
+
+
+							self.init_delete()
+							
+
+						
+						# # sending back ACK
+						# data = ("ACK - data received: "+str(data)).encode()
+						# message_queues[s].put(data)
+						# # add s as a connection waiting to send messages
+						# if s not in outputs:
+						#     outputs.append(s)
+						
 						self.inputs.remove(s)
 						s.close()
 

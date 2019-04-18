@@ -17,14 +17,14 @@ from write_utils import *
 from Message import Message
 
 ip = "127.0.0.1"
-port = 20000
+port = 64531
 data = None
-with open("./temp.txt", 'rb') as f:
+with open("./file/temp.txt", 'rb') as f:
 	data = f.read()
 
 data_dict = {}
 data_dict['file'] = data
-data_dict['filedir'] = './root/a/'
+data_dict['filedir'] = './root/b/'
 data_dict['filename'] = 'temp.txt'
 msg = Message(Msg_type['write_req'], recv_host = ip, recv_port = port, data_dict = data_dict)
 
