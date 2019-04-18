@@ -15,6 +15,14 @@ class Msg_type(enum.Enum):
 	AN_FS_data = 9
 	AN_ready = 10
 	AN_success = 11
+	WR_COMMIT_REQ = 12
+	WR_AGREED = 13
+	WR_ABORT = 14
+	WR_COMMIT = 15
+	WR_ACK = 16
+	WR_ROUTE = 17			#Route req from cohort to leader
+	WR_REPLY = 18			#Final reply from leader to send to client (will contain bool for succ.)
+	write_reply = 19		#Reply message from node to client telling write succeeded(1)/failed(-1) (status field)
 	# TODO: add more!!
 
 

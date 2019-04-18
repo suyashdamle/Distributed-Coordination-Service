@@ -12,6 +12,7 @@ import time
 # importing custom utility functions
 from coordination_utils import *
 from add_node_utils import *
+from write_utils import *
 from Message import Message
 
 
@@ -51,14 +52,26 @@ class Node(object):
 			self.ldr_ip = host
 			self.ldr_port = port
 
-				
-
+		self.write_tids = {}			# dict of {write_id : thread_id}
+		self.global_write_id = 0		# each write will be assigned a write_id so that we can differentiate between multiple write
+		self.write_conditions = {}		# dict of {write_id : condition object} //for wait-notify of threads
+		self.wrreq_id = 0				# When any node receives a write req, it forwards it to leader while maintaining connection with client
+										#so to differentiate with the client connected thread, this var will be used 
+		self.wrreq_tids = {}			# dict of {write_req_id : thread_id}
+		#TODO - update this value in add/delete node
+		self.n_active_nodes = 1
+		self.timeout_write_req = 60		# in seconds -- very large, as whole 2PC protocol to be run
+		self.timeout_write = 10			# in seconds -- 
+		self.timeout_2pc = 30			# in seconds -- should be large as file needs to be written
+		self.wrreq_conditions = {}		# dict of {wrreq_id : condition object} //for wait-notify of threads
+		self.max_tries = 3				# max number of times a message will be attempted to send
+		
 		self.ldr_heartbeat_delay=100	# max how much delay could be expected from the leader bet heartbeats
 
 		# Creating the heartbeat handling thread
 		heartbeat_thread = threading.Thread(target = self.heartbeat_thread_fn, args=())
 		heartbeat_thread.start()
-		heartbeat_tid = heartbeat_thread.ident
+		self.heartbeat_tid = heartbeat_thread.ident
 
 		# TODO : decide parameters of each thread function
 		coordination_thread =  threading.Thread(target = self.coordination_thread_fn, args=(heartbeat_tid,))
@@ -75,7 +88,7 @@ class Node(object):
 			print("Server up at ip :",self.HOST," port: ",self.PORT)
 
 		
-		
+	#why is it required here? everything is imported from add_node_utils on top
 	from add_node_utils import add_node_protocol,send_AN_ldr_info,assign_new_id,send_file_system,\
 								AN_to_network
 	
@@ -232,7 +245,7 @@ class Node(object):
 					message_queues[connection] = queue.Queue() 
 				else:
 					# if some message has been received - be it in part
-					msg = recv_msg(connection)	#server
+					msg = recv_msg(s)	#server
 					if msg:
 						print("DEBUG_MSG: data received: ")
 						msg._source_host = client_address[0]
@@ -240,6 +253,76 @@ class Node(object):
 						# find message type and send to the right thread
 						if Msg_type(msg._m_type) is Msg_type.heartbeat:
 							self.thread_msg_qs[heartbeat_tid].put(msg)
+
+						#Add try catch statements, as on returning early, dicts might get cleared resulting in illegal access
+						elif Msg_type(msg._m_type) is Msg_type.write_req:		#can be received by any node (this message comes directly from client)
+							#this message should have 'filedir', 'filename' and 'file' fields in it's _data_dict
+							cond = threading.Condition()
+							wrreq_id += 1
+							curr_wrreq_id = wrreq_id
+							#DONE - pass socket identifier as arg of following func call :
+							write_thread = threading.Thread(target = self.write_req_handler, args=(msg, cond, curr_wrreq_id, s))
+							write_thread.start()
+							self.wrreq_conditions[curr_wrreq_id] = cond
+							self.wrreq_tids[curr_wrreq_id] = write_thread.ident
+							self.thread_msg_qs[write_thread.ident] = queue.Queue()
+							continue											#we don't want this socket to close
+
+						elif Msg_type(msg._m_type) is Msg_type.WR_ROUTE:		#only received by a leader
+							cond = threading.Condition()
+							write_thread = threading.Thread(target = self.routed_write_handler, args=(msg, cond))
+							write_thread.start()
+
+						elif Msg_type(msg._m_type) is Msg_type.WR_COMMIT_REQ:	#received by non-leader node
+							#DONE - add condition var in args, for wait,invoke
+							cond = threading.Condition()
+							non_leader_write_thread = threading.Thread(target = self.non_leader_write_handler, args=(msg, cond))
+							non_leader_write_thread.start()
+							write_id = msg._data_dict['write_id']
+							self.write_conditions[write_id] = cond
+							self.write_tids[write_id] = non_leader_write_thread.ident
+							self.thread_msg_qs[non_leader_write_thread.ident] = queue.Queue()
+
+						elif Msg_type(msg._m_type) is Msg_type.WR_AGREED:		#only received by a leader
+							try:
+								write_id = msg._data_dict['write_id']
+								self.thread_msg_qs[self.write_tids[write_id]].put(msg)
+								self.write_conditions[write_id].notify()
+							except Exception as e:
+							 	print("Exception : AGREED message\n",e)
+
+						elif Msg_type(msg._m_type) is Msg_type.WR_ABORT:		#can be received by a leader or non-leader node
+							try:
+								write_id = msg._data_dict['write_id']
+								self.thread_msg_qs[self.write_tids[write_id]].put(msg)
+								self.write_conditions[write_id].notify()		#wake up the thread to accept ABORT message from queue
+							except Exception as e:
+							 	print("Exception : ABORT message\n",e)
+
+						elif Msg_type(msg._m_type) is Msg_type.WR_COMMIT:		#received by non-leader node
+							try:
+								write_id = msg._data_dict['write_id']
+								self.thread_msg_qs[self.write_tids[write_id]].put(msg)
+								self.write_conditions[write_id].notify()		#wake up the thread to accept COMMIT message from queue
+							except Exception as e:
+							 	print("Exception : COMMIT message\n",e)
+
+						elif Msg_type(msg._m_type) is Msg_type.WR_ACK:			#only received by a leader
+							try:
+								write_id = msg._data_dict['write_id']
+								self.thread_msg_qs[self.write_tids[write_id]].put(msg)
+								self.write_conditions[write_id].notify()
+							except Exception as e:
+							 	print("Exception : ACK message\n",e)
+
+						elif Msg_type(msg._m_type) is Msg_type.WR_REPLY:		#received by node who is in contact with client for write opn
+							try:
+								write_req_id = msg._data_dict['write_req_id']
+								self.thread_msg_qs[self.wrreq_tids[write_id]].put(msg)
+								self.wrreq_conditions[write_req_id].notify()
+							except Exception as e:
+							 	print("Exception : REPLY message\n",e)
+
 						elif Msg_type(msg._m_type) is Msg_type.AN_ldr_info:
 							self.thread_msg_qs[self.main_thread_tid].put(msg)
 
@@ -280,7 +363,7 @@ class Node(object):
 				if not message_queues[s].empty():
 					# if some item is present - send it
 					next_msg = message_queues[s].get()
-					send_msg(connection,next_msg)
+					send_msg(s,next_msg)
 					#s.send(next_msg)
 				else:
 					# indicate that server has nothing to send
