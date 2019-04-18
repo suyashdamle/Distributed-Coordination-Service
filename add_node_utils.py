@@ -41,6 +41,7 @@ def add_node_protocol(self):
 	self.ldr_ip = message.get_data('ldr_ip')
 	self.ldr_port = message.get_data('ldr_port')
 	self.network_dict = message.get_data('network_dict')
+	self.ldr_id = message.get_data('id')
 	self.network_dict[message._msg_id[0]]=(self.sponsor_host,self.sponsor_port,1)
 	print("network_dict: ",self.network_dict)
 
@@ -124,7 +125,7 @@ def send_AN_ldr_info(self, recv_host, recv_port):
 	with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
 		s.connect((recv_host, recv_port))
 		send_msg(s, Message(Msg_type['AN_ldr_info'],msg_id =(self.node_id,), data_dict = {'port': self.PORT, 'ldr_ip': self.ldr_ip, 'ldr_port': self.ldr_port,\
-																 'network_dict': self.network_dict}))
+																 'network_dict': self.network_dict,'id':self.ldr_id}))
 
 	s.close()
 
