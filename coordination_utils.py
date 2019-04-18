@@ -23,7 +23,9 @@ class Msg_type(enum.Enum):
 	WR_ROUTE = 17			#Route req from cohort to leader
 	WR_REPLY = 18			#Final reply from leader to send to client (will contain bool for succ.)
 	write_reply = 19		#Reply message from node to client telling write succeeded(1)/failed(-1) (status field)
-	ldr_proposal = 20		# sent by any node to the prospective leader (least alive node-id)
+	ldr_proposal = 20		#sent by any node to the prospective leader (least alive node-id)
+	read_request = 21		#request for read from user
+	file_data = 22
 	# TODO: add more!!
 
 

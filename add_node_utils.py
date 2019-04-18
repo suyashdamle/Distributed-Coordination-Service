@@ -125,8 +125,8 @@ def add_node_protocol(self):
 	# zip1 = zipfile.ZipFile(zipfilePath)
 	# zip1.extractall(".")
 	# zip1.close()
-	# self.inputs.remove(self.file_system_port)
-	# self.file_system_port.close()
+	self.inputs.remove(self.file_system_port)
+	self.file_system_port.close()
 	self.add_node = True
 	print("Node added successfully !")
 
