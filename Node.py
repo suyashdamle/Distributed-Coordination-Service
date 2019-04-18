@@ -47,6 +47,7 @@ class Node(object):
 		self.ldr_ip = '127.0.0.1'
 		self.ldr_port = 64532
 		self.ldr_heartbeat_delay=5		# max how much delay could be expected from the leader bet heartbeats
+		self.is_sponsor = False
 		if self.is_leader:
 			self.ldr_ip = host
 			self.ldr_port = port
@@ -272,22 +273,42 @@ class Node(object):
 							del self.network_dict[msg.dict_data]
 							#broadcast if leader
 							if self.is_leader:
-								for s in self.network_dict:
-									send_msg(msg)
+								for n in self.network_dict:
+									msg._recv_host,msg._recv_port = (self.network_dict[n](0),self.network_dict[n](1)  #if n is leader??
+									with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as soc:
+										soc.connect((self.network_dict[n](0),self.network_dict[n](1)))
+										send_msg(soc,msg) #send message
+									#send_msg(msg)
 							
 						elif Msg_type(msg._m_type) is Msg_type.init_delete:
-							if self.is_leader:
-								new_ldr_id
-								#Get next highest key and broadcast new_ldr_id.
-								#On recieving ack initiate delete
+							if self.is_sponsor:
+								print("Cannot delete Node")
+							else:
+								if self.is_leader:
+									#Get next highest key and broadcast new_ldr_id.
+									key_list = list(self.network_dict.keys())
+									key_list.sort()
+									new_ldr_id = key_list[1]
+									for n in self.network_dict and :
+										new_ldr_msg = Message(Msg_type['new_ldr_id'])
+										new_ldr_msg._source_host,new_ldr_msg._source_port = self.HOST,self.PORT
+										new_ldr_msg.recv_host,new_ldr_msg._recv_port = self.network_dict[n](0),self.network_dict[n](1)
+										delete_msg.dict_data = new_ldr_id
+									#On recieving ack initiate delete
 
-							#send delete_msg to leader and stop
-							delete_msg = Message(Msg_type['delete_node'])
-							delete_msg._source_host,delete_msg._source_port=s.getsockname()
-							heartbeat_msg._recv_host,heartbeat_msg._recv_port = self.network_dict[ldr_id]
-							send_msg(s, delete_msg)
 
-							#stop
+								#send delete_msg to leader and stop
+								delete_msg = Message(Msg_type['delete_node'])
+								delete_msg._source_host,delete_msg._source_port=self.HOST,self.PORT
+								delete_msg._recv_host,delete_msg._recv_port = self.network_dict[ldr_id](0),self.network_dict[ldr_id](1)
+								delete_msg.dict_data = msg.dict_data
+
+								with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as soc:
+									soc.connect((self.ldr_ip,self.ldr_port))
+									send_msg(soc,delete_msg) #send message
+
+								#stop
+								exit(0)
 
 						
 						# # sending back ACK
