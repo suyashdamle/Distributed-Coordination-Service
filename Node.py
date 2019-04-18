@@ -374,14 +374,21 @@ class Node(object):
 								self.thread_msg_qs[become_ldr_tid].put(msg)
 								become_ldr_evnt.set()
 							
-							elif msg.get_data('type')=='del_ldr':
+							# print("xxxxxxxxxxx")
+							# print(msg.get_data('id'))
+							# print(msg.get_data('ip'))
+							# print(msg.get_data('port'))
+
+
+							if msg.get_data('type')=='del_ldr':
 								self.ldr_id = msg.get_data('id')
 								self.ldr_ip = msg.get_data('ip')
 								self.ldr_port = msg.get_data('port')
 								self.ldr_alive = True
+								print("DEBUG_MSG: New leader:", self.ldr_id)
 
 								if self.ldr_id == self.node_id:
-									is_leader = True
+									self.is_leader = True
 								
 								# new_msg = Message(Msg_type['new_ldr_id'],msg_id = (self.node_id,threading.current_thread().ident))
 								# new_recv = (self.network_dict[msg._msg_id[0]][0],self.network_dict[msg._msg_id[0]][1])
@@ -422,8 +429,9 @@ class Node(object):
 						
 						elif Msg_type(msg._m_type) is Msg_type.delete_node:
 							delete_node_thread = threading.Thread(target = self.del_from_network_dict, args=(msg,))
+							delete_node_thread.start()
 							
-							#del_from_network_dict(self,msg)
+							# self.del_from_network_dict(msg)
 							
 							
 						elif Msg_type(msg._m_type) is Msg_type.init_delete:

@@ -6,8 +6,7 @@ from Message import Message
 import time
 
 ip = "127.0.0.1"
-port = 64531
-
+port = 64532
 data_dict = {}
 
 
