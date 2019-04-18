@@ -52,6 +52,7 @@ def send_new_msg(self, ip, port, msg):
 
 def write_req_handler(self, msg, cond, write_req_id, sock):
 	#close sock before return
+	print("DEBUG_MSG: New write request received, entered write_req_handler")
 	data = msg._data_dict
 	client_ip = msg._source_host
 	client_port = msg._source_port
@@ -59,6 +60,7 @@ def write_req_handler(self, msg, cond, write_req_id, sock):
 	route_msg = Message(Msg_type['WR_ROUTE'], recv_host = self.ldr_ip, recv_port = self.ldr_port, data_dict = data)
 	ret = self.send_new_msg(self.ldr_ip, self.ldr_port, route_msg)
 	if not ret:
+		print("DEBUG_MSG: Failed sending Route message to leader")
 		self.send_msg_to_client(client_ip, client_port, -1, sock, write_req_id)
 		return	
 
@@ -89,8 +91,16 @@ def write_req_handler(self, msg, cond, write_req_id, sock):
 	return
 
 def routed_write_handler(self, msg, cond):
-	if not self.is_leader :
-		# report some error, as routed write req must only be received by leader
+	if not self.is_leader or not self.ldr_alive or not self.add_node or self.sponsor_node_count > 0:
+		print("Entered stopping area in leader")
+		if not self.is_leader:
+			print("LOAD : No leader")
+		if not self.ldr_alive:
+			print("LOAD : Leader not alive")
+		if not self.add_node:
+			print("LOAD : Node not added yet")
+		if not self.sponsor_node_count > 0:
+			print("LOAD : Leader sponsoring new node rn")
 		source_nid = msg._msg_id[0]
 		if source_nid == self.node_id:
 			reply_node_ip  = self.HOST
@@ -98,6 +108,7 @@ def routed_write_handler(self, msg, cond):
 		else:
 			reply_node_ip  = self.network_dict[source_nid][0]
 			reply_node_port = self.network_dict[source_nid][1]
+		# report some error, as routed write req must only be received by leader
 		write_req_id = msg._data_dict['write_req_id']
 		reply_data = {}
 		reply_data['write_req_id'] = write_req_id
@@ -216,7 +227,7 @@ def two_phase_commit(self, msg, cond):
 		while(n_agreed+n_abort < len(self.network_dict)) :
 			timeout = cond.wait(timeout = self.timeout_2pc)
 			if timeout is False:
-				if n_agreed == len(self.network_dict):
+				if n_agreed >= len(self.network_dict):
 					write_succ = True
 				else :
 					fail = True
@@ -243,6 +254,7 @@ def two_phase_commit(self, msg, cond):
 					f.write(older)
 					f.close()
 				del older
+			reply_data['write_succ'] = False 
 			reply_msg = Message(Msg_type['WR_REPLY'], recv_host = reply_node_ip, recv_port = reply_node_port, data_dict = reply_data)
 			ret = self.send_new_msg(reply_node_ip, reply_node_port, reply_msg)
 			if not ret:
@@ -289,7 +301,7 @@ def two_phase_commit(self, msg, cond):
 		while n_acks < len(self.network_dict):
 			timeout = cond.wait(timeout = self.timeout_write)
 			if timeout is False:
-				if n_acks == len(self.network_dict):
+				if n_acks >= len(self.network_dict):
 					write_succ = True
 				else :
 					write_succ = False
@@ -322,6 +334,30 @@ def non_leader_write_handler(self, msg, cond):
 	#update global write id
 	curr_write_id = msg._data_dict['write_id']
 	self.global_write_id = max(self.global_write_id, curr_write_id)
+	source_nid = msg._msg_id[0]
+	if source_nid == self.node_id:
+		reply_node_ip  = self.HOST
+		reply_node_port = self.PORT
+	else:
+		reply_node_ip  = self.network_dict[source_nid][0]
+		reply_node_port = self.network_dict[source_nid][1]
+	
+	if not self.ldr_alive or not self.add_node or self.sponsor_node_count > 0:
+		print("Entered stopping area in node")
+		if not self.ldr_alive:
+			print("LOAD : Leader not alive")
+		if not self.add_node:
+			print("LOAD : Node not added yet")
+		if not self.sponsor_node_count > 0:
+			print("LOAD : Node sponsoring new node rn")
+		reply_data = {}
+		reply_data['write_id'] = curr_write_id
+		reply_msg = Message(Msg_type['WR_ABORT'], data_dict=reply_data)
+		ret = self.send_new_msg(reply_node_ip, reply_node_port, reply_msg)
+		if not ret:
+			pass
+		self.clear_write_data(curr_write_id)
+		return
 
 	#store file's older version
 	write_succ = True
@@ -331,13 +367,6 @@ def non_leader_write_handler(self, msg, cond):
 	filepath = filedir + '/' + filename
 	exists = os.path.exists(filepath)
 	older = None
-	source_nid = msg._msg_id[0]
-	if source_nid == self.node_id:
-		reply_node_ip  = self.HOST
-		reply_node_port = self.PORT
-	else:
-		reply_node_ip  = self.network_dict[source_nid][0]
-		reply_node_port = self.network_dict[source_nid][1]
 	#store older version only if file existed previously
 	if exists:
 		try :

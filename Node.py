@@ -87,6 +87,7 @@ class Node(object):
 			self.ldr_id = 1
 			self.ldr_ip = host
 			self.ldr_port = port
+			self.add_node = True
 			print("Leader up at ip :",self.HOST," port: ",self.PORT)
 
 		self.write_tids = {}			# dict of {write_id : thread_id}
@@ -397,8 +398,8 @@ class Node(object):
 						elif Msg_type(msg._m_type) is Msg_type.WR_REPLY:		#received by node who is in contact with client for write opn
 							try:
 								write_req_id = msg._data_dict['write_req_id']
-								self.thread_msg_qs[self.wrreq_tids[write_id]].put(msg)
-								with self.wrreq_conditions[write_id]:
+								self.thread_msg_qs[self.wrreq_tids[write_req_id]].put(msg)
+								with self.wrreq_conditions[write_req_id]:
 									self.wrreq_conditions[write_req_id].notify()
 							except Exception as e:
 							 	print("Exception : REPLY message\n",e)
