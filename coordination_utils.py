@@ -46,9 +46,13 @@ def recvall(sock, n):
 	# Helper function to recv n bytes or return None if EOF is hit
 	data = b''
 	while len(data) < n:
-		packet = sock.recv(n - len(data))
+		try:
+			packet = sock.recv(n - len(data))
+		except:
+			continue
 		if not packet:
 			# only part of the data received so far
 			return None
 		data += packet
+		
 	return data

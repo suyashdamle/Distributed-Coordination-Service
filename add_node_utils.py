@@ -6,6 +6,9 @@ import os
 import sys
 import random
 import _thread
+import shutil
+import zipfile
+
 
 def exception_handler(IP,PORT):
 	print("Could not connect to IP ",IP,' Port ',PORT)
@@ -42,8 +45,10 @@ def add_node_protocol(self):
 	self.ldr_port = message.get_data('ldr_port')
 	self.network_dict = message.get_data('network_dict')
 	self.network_dict[message._msg_id[0]]=(self.sponsor_host,self.sponsor_port,1)
-	print("network_dict: ",self.network_dict)
 
+	self.pause_heartbeat = False
+
+	print("network_dict: ",self.network_dict)
 	print("Sponsor_host is : ",self.sponsor_host," Sponsor port is : ",self.sponsor_port)
 	print("Message recieved: Leader ip :", self.ldr_ip, "Leader port :",self.ldr_port)
 	
@@ -78,7 +83,7 @@ def add_node_protocol(self):
 		
 	
 	with self.AN_condition:
-		timeout = self.AN_condition.wait(timeout = self.add_node_timeout)
+		timeout = self.AN_condition.wait(timeout = 5*self.add_node_timeout)
 	
 	if timeout is False:
 		print("Sponsor node not responding. Exiting...")
@@ -88,10 +93,9 @@ def add_node_protocol(self):
 	self.file_system_name = message.get_data('name')
 	file_system_size = message.get_data('size')
 	self.meta_data = message.get_data('meta_data')
-
 	print("File system name is ",self.file_system_name," size is ",file_system_size)
 
-	file_pointer = open(self.file_system_name,'wb')
+	file_pointer = open(self.file_system_name+".zip",'wb')
 	current_size = 0
 
 	try:
@@ -106,12 +110,22 @@ def add_node_protocol(self):
 				if current_size >= file_system_size:
 					break
 	except:
-		print("Connection broken. File System tranfer failed. Exiting...")
+		print("Connection broken. File System transfer failed. Exiting...")
 		os._exit(0)
 
 	file_pointer.close()
 
+	if os.path.exists("./"+self.file_system_name):
+		shutil.rmtree("./"+self.file_system_name)
+	os.makedirs("./"+self.file_system_name)
 
+	shutil.unpack_archive("./"+self.file_system_name + ".zip",'./'+self.file_system_name)
+	# zipfilePath = ("./"+self.file_system_name + ".zip")
+	# zip1 = zipfile.ZipFile(zipfilePath)
+	# zip1.extractall(".")
+	# zip1.close()
+	# self.inputs.remove(self.file_system_port)
+	# self.file_system_port.close()
 	self.add_node = True
 	print("Node added successfully !")
 
@@ -135,38 +149,54 @@ def assign_new_id(self, recv_host, recv_port):
 
 	#send other nodes that a new node is added with the assigned node_id
 	for key,value in self.network_dict.items():
-		with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-			if value[2] is 1:
-				s.connect((value[0], value[1]))
-				send_msg(s,Message(Msg_type['AN_add_to_network'], data_dict = {'key': self.last_node_id,\
-																				'value': (recv_host,recv_port,1)}))
-		s.close()
+		try:
+			with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+				if value[2] is 1:
+					s.connect((value[0], value[1]))
+					send_msg(s,Message(Msg_type['AN_add_to_network'], data_dict = {'key': self.last_node_id,\
+																					'value': (recv_host,recv_port,1)}))
+			s.close()
+		except:
+			exception_handler(value[0],value[1])
 
 	self.network_dict[self.last_node_id] = (recv_host,recv_port,1)	#populate own table
 	
-	with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-		s.connect((recv_host, recv_port))
-		send_msg(s, Message(Msg_type['AN_set_id'], data_dict = {'id': self.last_node_id, 'port': self.PORT}))
+	try:
+		with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+			s.connect((recv_host, recv_port))
+			send_msg(s, Message(Msg_type['AN_set_id'], data_dict = {'id': self.last_node_id, 'port': self.PORT}))
 
-	s.close()
-
+		s.close()
+	except:
+		exception_handler(value[0],value[1])
 	
 
 def send_file_system(self, recv_host, recv_port):
 
+	#TODO: handle for multiple nodes trying to get the file system
 	with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-		file_system = open('file_system',"rb")
-		file_size = os.path.getsize('file_system')
+
 		s.connect((recv_host, recv_port))
 		print("Preparing to send file system...")
-		send_msg(s, Message(Msg_type['AN_FS_data'], data_dict = {'name':'file_system_duplicate','size': file_size,\
+
+		if self.sponsor_node_count == 0:
+			shutil.make_archive(self.file_system_name,"zip","./root")
+
+		self.sponsor_node_count += 1	
+		file_system = open(self.file_system_name+".zip","rb")
+		file_size = os.path.getsize(self.file_system_name + ".zip")
+
+		send_msg(s, Message(Msg_type['AN_FS_data'], data_dict = {'name': self.file_system_name ,'size': file_size,\
 																'meta_data': self.meta_data}))
+
 		while True:
 			chunk = file_system.read(self.buffer_size)
 			if not chunk:
 				break  # EOF
 			send_msg(s, Message(Msg_type['AN_FS_data'], data_dict = {'data': chunk}))
 
+	print("File system sent successfully!")
+	self.sponsor_node_count -= 1
 	file_system.close()
 	s.close()	
 

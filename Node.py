@@ -39,7 +39,9 @@ class Node(object):
 		self.node_id = -1				# the node-id of this instance - changed during joining protocol
 		self.config_fname = config_fname
 		self.ldr_heartbeat_delay=10		# max how much delay could be expected from the leader bet heartbeats
-
+		self.sponsor_node_count = 0
+		self.file_system_port = None
+		self.inputs = None
 		#self.config_table = {'127.0.0.1': 64531} 		# TODO mentioned above
 
 		# Thread-ids of some critical processes kept as instance variables
@@ -47,7 +49,7 @@ class Node(object):
 		self.ldr_elect_tid = None
 		self.heartbeat_tid = None
 		self.become_ldr_tid = None
-		self.abort_heartbeat = False
+		self.pause_heartbeat = False
 
 		# Thread objects of some critical processes
 		self.heartbeat_thread = None
@@ -76,7 +78,7 @@ class Node(object):
 
 
 		if self.is_leader:
-			self.meta_data = {}
+			self.file_system_name = "root"
 			self.meta_data['./root'] = (0,'./root/',-1,[],False)
 			self.node_id = 1
 			self.ldr_id = 1
@@ -119,7 +121,7 @@ class Node(object):
 		'''
 		Does all processes related to heartbeat receiving and sending
 		'''
-		self.abort_heartbeat = False
+		self.pause_heartbeat = False
 		self.thread_msg_qs[threading.current_thread().ident] = queue.Queue()
 		heartbeat_msg = Message(Msg_type['heartbeat'],msg_id = (self.node_id, threading.current_thread().ident))
 
@@ -131,8 +133,8 @@ class Node(object):
 			node_timeouts = {n_id:-1 for n_id in self.network_dict.keys()}
 
 			while True:
-				if self.abort_heartbeat:
-					return
+				if self.pause_heartbeat:
+					continue
 				responded_nodes = []
 				# Collect all messages from queue:
 				q = self.thread_msg_qs[threading.current_thread().ident]
@@ -182,8 +184,8 @@ class Node(object):
 		else:
 			ldr_timeout_count = -1
 			while True:
-				if self.abort_heartbeat:
-					return
+				if self.pause_heartbeat:
+					continue
 				if self.ldr_alive:
 					q = self.thread_msg_qs[threading.current_thread().ident]
 					got_ldr_hbeat = False
@@ -241,23 +243,23 @@ class Node(object):
 		server.setblocking(0)
 		server.bind((self.HOST, self.PORT))
 		server.listen(5)
-		inputs = [server]
+		self.inputs = [server]
 		outputs = []
 		message_queues = {} # message queue dict
-		while inputs:
-			readable, writable, exceptional = select.select(inputs, outputs, inputs)
+		while self.inputs:
+			readable, writable, exceptional = select.select(self.inputs, outputs, self.inputs)
 			for s in readable:
 				if s is server:
 					# for new connections
 					connection, client_address = s.accept()
 					connection.setblocking(0)
-					inputs.append(connection)
+					self.inputs.append(connection)
 					print("DEBUG_MSG: Received connection request from: ",client_address)
 					# creating a message queue for each connection
 					message_queues[connection] = queue.Queue() 
 				else:
 					# if some message has been received - be it in part
-					msg = recv_msg(connection)	#server
+					msg = recv_msg(s)	#server
 					if msg:
 						print("DEBUG_MSG: data received: Msg_type:", Msg_type(msg._m_type))
 						msg._source_host = client_address[0]
@@ -274,7 +276,7 @@ class Node(object):
 									pass
 
 						elif Msg_type(msg._m_type) is Msg_type.AN_ldr_info:
-							print("@@@@@@@")
+
 							if self.sponser_set is False:		#if not received any sponsor reply yet
 								self.sponser_set = True
 								self.thread_msg_qs[self.main_thread_tid].put(msg)
@@ -296,14 +298,16 @@ class Node(object):
 									self.AN_condition.notifyAll()		#ask thread to wake up
 
 						elif Msg_type(msg._m_type) is Msg_type.AN_FS_data:
-							# print('@@@@@@@@@')
+							
+							self.file_system_port = s
 							self.thread_msg_qs[self.main_thread_tid].put(msg)
 							if self.file_system_name is None:
-								# print("###########")
 								with self.AN_condition:
 										self.AN_condition.notifyAll()		#ask thread to wake up
 							else:
+
 								pass
+							
 							continue
 
 						elif Msg_type(msg._m_type) is Msg_type.add_node:	#sponsor node on receiving 'add_node'
@@ -355,7 +359,7 @@ class Node(object):
 										send_msg(s, new_msg)
 
 
-						inputs.remove(s)
+						self.inputs.remove(s)
 						s.close()
 
 			for s in writable:
@@ -363,7 +367,7 @@ class Node(object):
 				if not message_queues[s].empty():
 					# if some item is present - send it
 					next_msg = message_queues[s].get()
-					send_msg(connection,next_msg)
+					send_msg(s,next_msg)
 					#s.send(next_msg)
 				else:
 					# indicate that server has nothing to send
@@ -371,7 +375,7 @@ class Node(object):
 
 			for s in exceptional:
 				# remove this connection and all its existences
-				inputs.remove(s)
+				self.inputs.remove(s)
 				if s in outputs:
 					outputs.remove(s)
 				s.close()
