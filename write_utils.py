@@ -92,8 +92,12 @@ def routed_write_handler(self, msg, cond):
 	if not self.is_leader :
 		# report some error, as routed write req must only be received by leader
 		source_nid = msg._msg_id[0]
-		reply_node_ip  = self.network_dict[source_nid][0]
-		reply_node_port = self.network_dict[source_nid][1]
+		if source_nid == self.node_id:
+			reply_node_ip  = self.HOST
+			reply_node_port = self.PORT
+		else:
+			reply_node_ip  = self.network_dict[source_nid][0]
+			reply_node_port = self.network_dict[source_nid][1]
 		write_req_id = msg._data_dict['write_req_id']
 		reply_data = {}
 		reply_data['write_req_id'] = write_req_id
@@ -121,15 +125,19 @@ def two_phase_commit(self, msg, cond):
 	self.write_conditions[curr_write_id] = cond
 
 	source_nid = msg._msg_id[0]
-	reply_node_ip  = self.network_dict[source_nid][0]
-	reply_node_port = self.network_dict[source_nid][1]
+	if source_nid == self.node_id:
+		reply_node_ip  = self.HOST
+		reply_node_port = self.PORT
+	else:
+		reply_node_ip  = self.network_dict[source_nid][0]
+		reply_node_port = self.network_dict[source_nid][1]
 	write_req_id = msg._data_dict['write_req_id']
 	reply_data = {}
 	reply_data['write_req_id'] = write_req_id
 
 	q = self.thread_msg_qs[threading.current_thread().ident]
 
-	#TODO - ask others to take care of n_active_nodes
+	# n_active_nodes = len(self.network_dict)
 
 	with cond:
 
@@ -205,10 +213,10 @@ def two_phase_commit(self, msg, cond):
 		fail = False
 
 		#hoping n_active_nodes is dynamic (changes on addition/crash of nodes)
-		while(n_agreed+n_abort < self.n_active_nodes-1) :
+		while(n_agreed+n_abort < len(self.network_dict)) :
 			timeout = cond.wait(timeout = self.timeout_2pc)
 			if timeout is False:
-				if n_agreed == self.n_active_nodes-1:
+				if n_agreed == len(self.network_dict):
 					write_succ = True
 				else :
 					fail = True
@@ -240,7 +248,7 @@ def two_phase_commit(self, msg, cond):
 			if not ret:
 				print("Failed to send Failure-REPLY message to node connected to client")
 
-		#n_agreed must be n_active_nodes - 1 here
+		#n_agreed must be len(self.network_dict) here
 		if write_succ :
 			#if all AGREED, leader commits the changes
 			del older	#or older = None
@@ -278,10 +286,10 @@ def two_phase_commit(self, msg, cond):
 
 		n_acks = 0
 		#wait for ACK from all
-		while n_acks < self.n_active_nodes-1:
+		while n_acks < len(self.network_dict):
 			timeout = cond.wait(timeout = self.timeout_write)
 			if timeout is False:
-				if n_acks == self.n_active_nodes-1:
+				if n_acks == len(self.network_dict):
 					write_succ = True
 				else :
 					write_succ = False
@@ -324,8 +332,12 @@ def non_leader_write_handler(self, msg, cond):
 	exists = os.path.exists(filepath)
 	older = None
 	source_nid = msg._msg_id[0]
-	reply_node_ip  = self.network_dict[source_nid][0]
-	reply_node_port = self.network_dict[source_nid][1]
+	if source_nid == self.node_id:
+		reply_node_ip  = self.HOST
+		reply_node_port = self.PORT
+	else:
+		reply_node_ip  = self.network_dict[source_nid][0]
+		reply_node_port = self.network_dict[source_nid][1]
 	#store older version only if file existed previously
 	if exists:
 		try :

@@ -95,7 +95,7 @@ class Node(object):
 										#so to differentiate with the client connected thread, this var will be used 
 		self.wrreq_tids = {}			# dict of {write_req_id : thread_id}
 		#TODO - update this value in add/delete node
-		self.n_active_nodes = 2
+		self.n_active_nodes = 2			# not needed now : will use network_dict length
 		self.timeout_write_req = 60		# in seconds -- very large, as whole 2PC protocol to be run
 		self.timeout_write = 10			# in seconds -- 
 		self.timeout_2pc = 30			# in seconds -- should be large as file needs to be written
