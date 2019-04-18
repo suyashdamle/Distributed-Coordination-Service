@@ -44,6 +44,7 @@ def add_node_protocol(self):
 	self.ldr_ip = message.get_data('ldr_ip')
 	self.ldr_port = message.get_data('ldr_port')
 	self.network_dict = message.get_data('network_dict')
+	self.ldr_id = message.get_data('id')
 	self.network_dict[message._msg_id[0]]=(self.sponsor_host,self.sponsor_port,1)
 
 	self.pause_heartbeat = False
@@ -138,7 +139,7 @@ def send_AN_ldr_info(self, recv_host, recv_port):
 	with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
 		s.connect((recv_host, recv_port))
 		send_msg(s, Message(Msg_type['AN_ldr_info'],msg_id =(self.node_id,), data_dict = {'port': self.PORT, 'ldr_ip': self.ldr_ip, 'ldr_port': self.ldr_port,\
-																 'network_dict': self.network_dict}))
+																 'network_dict': self.network_dict,'id':self.ldr_id}))
 
 	s.close()
 
@@ -160,7 +161,8 @@ def assign_new_id(self, recv_host, recv_port):
 			exception_handler(value[0],value[1])
 
 	self.network_dict[self.last_node_id] = (recv_host,recv_port,1)	#populate own table
-	
+	print("***************Updated Network Dict***************")
+	print(self.network_dict)
 	try:
 		with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
 			s.connect((recv_host, recv_port))
