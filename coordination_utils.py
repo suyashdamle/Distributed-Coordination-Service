@@ -26,6 +26,8 @@ class Msg_type(enum.Enum):
 	ldr_proposal = 20		# sent by any node to the prospective leader (least alive node-id)
 	delete_node = 21		#Node/Leader requesting deletion
 	init_delete = 22		#client commanding deletion
+	read_request = 23		#request for read from user
+	file_data = 24
 	# TODO: add more!!
 
 

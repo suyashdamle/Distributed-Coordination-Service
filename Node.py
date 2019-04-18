@@ -16,6 +16,7 @@ from coordination_utils import *
 from add_node_utils import *
 from write_utils import *
 from Message import Message
+from read_utils import receive_file
 
 # TODO: use UDP for heartbeats 
 
@@ -126,7 +127,8 @@ class Node(object):
 	from add_node_utils import add_node_protocol,send_AN_ldr_info,assign_new_id,send_file_system
 	from delete_node_utils import del_from_network_dict,init_delete
 	from write_utils import write_req_handler, routed_write_handler, non_leader_write_handler, two_phase_commit, clear_write_req_data, clear_write_data, send_msg_to_client, send_new_msg
-	
+	from read_utils import send_file
+
 	
 
 	def thread_manager(self):
@@ -428,7 +430,7 @@ class Node(object):
 									self.AN_condition.notifyAll()		#ask thread to wake up
 
 						elif Msg_type(msg._m_type) is Msg_type.AN_FS_data:							
-							self.file_system_port = s
+							# self.file_system_port = s
 							self.thread_msg_qs[self.main_thread_tid].put(msg)
 							if self.file_system_name is None:
 								with self.AN_condition:
@@ -451,6 +453,11 @@ class Node(object):
 							send_file_system_thread = threading.Thread(target = self.send_file_system, args=(msg._source_host,msg.get_data('port'),))
 							send_file_system_thread.start()
 
+						elif Msg_type(msg._m_type) is Msg_type.read_request:
+							read_thread = threading.Thread(target = self.send_file, args=(msg.get_data('filename'),\
+																							msg.get_data('filedir'),s))
+							read_thread.start()
+							continue
 						elif Msg_type(msg._m_type) is Msg_type.ldr_proposal:
 							# spawn a become_leader thread if it doesnt exist and pass future messages to it
 							if self.is_leader:
