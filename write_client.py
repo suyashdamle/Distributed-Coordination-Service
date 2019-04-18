@@ -17,15 +17,15 @@ from write_utils import *
 from Message import Message
 
 ip = "127.0.0.1"
-port = 64531
+port = 40000
 data = None
-with open("./file/temp.txt", 'rb') as f:
+with open("./temp2.txt", 'rb') as f:
 	data = f.read()
 
 data_dict = {}
 data_dict['file'] = data
-data_dict['filedir'] = './root/new'
-data_dict['filename'] = 'temp.txt'
+data_dict['filedir'] = './root/a/'
+data_dict['filename'] = 'temp2.txt'
 msg = Message(Msg_type['write_req'], recv_host = ip, recv_port = port, data_dict = data_dict)
 
 with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
