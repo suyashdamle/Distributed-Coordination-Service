@@ -108,6 +108,7 @@ class Node(object):
 	from ldr_elect_utils import ldrelect_thread_fn, ldr_agreement_fn, become_ldr_thread_fn,\
 								become_ldr_killer
 	from add_node_utils import add_node_protocol,send_AN_ldr_info,assign_new_id,send_file_system
+	from delete_node_utils import del_from_network_dict,init_delete
 	
 
 	def thread_manager(self):
@@ -155,8 +156,6 @@ class Node(object):
 
 
 				# Check if someone has not responded for long:
-						elif Msg_type(msg._m_type) is Msg_type.AN_ready:
-							self.AN_to_network(msg)
 				for n_id in self.network_dict.keys():
 					if node_timeouts[n_id] >= self.timeout_thresh:
 						print("NODE : ",n_id," found unresponsive")
@@ -232,50 +231,9 @@ class Node(object):
 
 				# re-rstarting timer
 				time.sleep(self.ldr_heartbeat_delay)
-	
-	def init_delete(self):
-		if self.is_sponsor:
-			print("Cannot delete Node. Currently a sponsor node")
-		else:
-			if self.is_leader:
-				#Get next highest key and broadcast new_ldr_id.
-				key_list = list(self.network_dict.keys())
-				key_list.sort()
-				new_ldr_id = key_list[1]
-				for n in self.network_dict and :
-					new_ldr_msg = Message(Msg_type['new_ldr_id'])
-					new_ldr_msg._source_host,new_ldr_msg._source_port = self.HOST,self.PORT
-					new_ldr_msg.recv_host,new_ldr_msg._recv_port = self.network_dict[n](0),self.network_dict[n](1)
-					delete_msg.dict_data = new_ldr_id
-				#Wait for ack
-
-			#send delete_msg to leader and stop
-			delete_msg = Message(Msg_type['delete_node'])
-			delete_msg._source_host,delete_msg._source_port=self.HOST,self.PORT
-			delete_msg._recv_host,delete_msg._recv_port = self.network_dict[ldr_id](0),self.network_dict[ldr_id](1)
-			delete_msg.dict_data = msg.dict_data
-
-			with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as soc:
-				soc.connect((self.ldr_ip,self.ldr_port))
-				send_msg(soc,delete_msg) #send message
-
-			#stop
-			exit(0)
-		
-
-	def del_from_network_dict(self,msg):世界
-		#delete node from net directory					
-		del self.network_dict[msg.dict_data]
-		#broadcast if leader
-		if self.is_leader:
-			for n in self.network_dict:
-				msg._recv_host,msg._recv_port = (self.network_dict[n](0),self.network_dict[n](1)  #if n is leader??
-				with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as soc:
-					soc.connect((self.network_dict[n](0),self.network_dict[n](1)))
-					send_msg(soc,msg) #send message
-				#send_msg(msg)
 
 
+			
 	def coordination_thread_fn(self, heartbeat_tid):
 
 		print("Listening on port :",self.PORT)
@@ -288,6 +246,9 @@ class Node(object):
 		inputs = [server]
 		outputs = []
 		message_queues = {} # message queue dict
+
+		init_delete_thread_id = None
+
 		while inputs:
 			readable, writable, exceptional = select.select(inputs, outputs, inputs)
 			for s in readable:
@@ -377,6 +338,28 @@ class Node(object):
 								# send to become_leader_thread and let it take :
 								self.thread_msg_qs[become_ldr_tid].put(msg)
 								become_ldr_evnt.set()
+							
+							elif msg.get_data('type')=='del_ldr':
+								self.ldr_id = msg.get_data('id')
+								self.ldr_ip = msg.get_data('ip')
+								self.ldr_port = msg.get_data('port')
+								self.ldr_alive = True
+
+								if self.ldr_id == self.node_id:
+									is_leader = True
+								
+								# new_msg = Message(Msg_type['new_ldr_id'],msg_id = (self.node_id,threading.current_thread().ident))
+								# new_recv = (self.network_dict[msg._msg_id[0]][0],self.network_dict[msg._msg_id[0]][1])
+								# new_msg._data={'type':'ldr_changed','ans':'ACK'}
+								# try:
+								# 	s.connect(new_recv)
+								# except:
+								# 	pass
+								# else:
+								# 	new_msg._source_host,new_msg._source_port = s.getsockname()
+								# 	new_msg._recv_host,new_msg._recv_port = new_recv
+								# 	send_msg(s, new_msg)
+
 
 							# if it is a msg from some other node and seeks vote for itself
 							else:
@@ -401,11 +384,18 @@ class Node(object):
 
 						
 						elif Msg_type(msg._m_type) is Msg_type.delete_node:
-							del_from_network_dict(self,msg)
+							delete_node_thread = threading.Thread(target = self.del_from_network_dict, args=(msg,))
+							
+							#del_from_network_dict(self,msg)
 							
 							
 						elif Msg_type(msg._m_type) is Msg_type.init_delete:
-							init_delete(self)
+							# init_delete_thread = threading.Thread(target = self.init_delete, args=())
+							# init_delete_thread_id = init_delete_thread.ident
+							# self.thread_msg_qs[init_delete_thread_id] = queue.Queue()
+
+
+							self.init_delete()
 							
 
 						

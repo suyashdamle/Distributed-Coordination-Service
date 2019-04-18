@@ -16,7 +16,7 @@ class Msg_type(enum.Enum):
 	AN_add_to_network = 10	#Leader requesting all nodes to add a new node to the network
 	new_ldr_id = 11			# sent after creation of new leader by it
 	ldr_proposal = 12		# sent by any node to the prospective leader (least alive node-id)
-	delete_node = 13		#Node requesting deletion
+	delete_node = 13		#Node/Leader requesting deletion
 	init_delete = 14		#client commanding deletion
 	# TODO: add more!!
 
