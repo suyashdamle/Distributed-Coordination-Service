@@ -454,6 +454,7 @@ class Node(object):
 							send_file_system_thread.start()
 
 						elif Msg_type(msg._m_type) is Msg_type.read_request:
+							s.settimeout(None)
 							read_thread = threading.Thread(target = self.send_file, args=(msg.get_data('filename'),\
 																							msg.get_data('filedir'),s))
 							read_thread.start()

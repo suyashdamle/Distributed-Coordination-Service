@@ -57,6 +57,7 @@ elif function == 'read':
     server_dir = input('Enter server directory path: ')
     filename = input('Enter file name: ')
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.settimeout(None)
         s.connect((ip, port))
         send_msg(s, Message(Msg_type['read_request'], recv_host = ip, recv_port = port, data_dict = {'filename': filename,\
                                                                                                     'filedir': server_dir}))
