@@ -1,7 +1,7 @@
 from coordination_utils import *
 from add_node_utils import *
 from write_utils import *
-# from delete_node_utils import *
+from delete_node_utils import *
 from Message import Message
 from read_utils import receive_file
 
@@ -57,6 +57,7 @@ elif function == 'read':
     server_dir = input('Enter server directory path: ')
     filename = input('Enter file name: ')
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.settimeout(None)
         s.connect((ip, port))
         send_msg(s, Message(Msg_type['read_request'], recv_host = ip, recv_port = port, data_dict = {'filename': filename,\
                                                                                                     'filedir': server_dir}))
@@ -65,13 +66,13 @@ elif function == 'read':
     s.close()
 
 
-# elif function == 'delete_node':
-#     ip = input('Enter node IP: ')
-#     port = int(input('Enter node PORT: '))
-#     data_dict = {}
-#     msg = Message(Msg_type['init_delete'], recv_host = ip, recv_port = port, data_dict = data_dict)
+elif function == 'delete_node':
+    ip = input('Enter node IP: ')
+    port = int(input('Enter node PORT: '))
+    data_dict = {}
+    msg = Message(Msg_type['init_delete'], recv_host = ip, recv_port = port, data_dict = data_dict)
 
-#     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-#         s.connect((ip, port))
-#         send_msg(s, msg)
-#     s.close()
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.connect((ip, port))
+        send_msg(s, msg)
+    s.close()

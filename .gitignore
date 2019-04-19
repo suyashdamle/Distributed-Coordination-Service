@@ -5,3 +5,4 @@ file_system
 file_system_duplicate
 __pycache__/
 Node.pyc
+write_client.py

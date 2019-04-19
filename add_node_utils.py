@@ -98,15 +98,16 @@ def add_node_protocol(self):
 
 	file_pointer = open(self.file_system_name+".zip",'wb')
 	current_size = 0
-
+	chunk_no = 0
 	try:
 		while True:
 			# with self.AN_condition:
 			# 	self.AN_condition.wait()
 			if self.thread_msg_qs[self.main_thread_tid].empty() is False:
 				message = self.thread_msg_qs[self.main_thread_tid].get()
-				file_pointer.write(message.get_data('data'))
-				current_size+= sys.getsizeof(message.get_data('data'))
+				current_size+=file_pointer.write(message.get_data('data'))
+				# current_size+= sys.getsizeof(message.get_data('data'))
+				print("Size of chunk_no ",chunk_no," is ",sys.getsizeof(message.get_data('data')))
 				print("File size transferred ",current_size)
 				if current_size >= file_system_size:
 					break
@@ -191,11 +192,16 @@ def send_file_system(self, recv_host, recv_port):
 
 		send_msg(s, Message(Msg_type['AN_FS_data'], data_dict = {'name': self.file_system_name ,'size': file_size,\
 																'meta_data': self.meta_data}))
-
+		
+		print("File system size is ",file_size)
+		current_size = 0
+		chunk_no = 0
 		while True:
 			chunk = file_system.read(self.buffer_size)
 			if not chunk:
 				break  # EOF
+			# print("Size of chunk_no ",chunk_no," is ",sys.getsizeof(chunk))
+			current_size = current_size + sys.getsizeof(chunk)
 			send_msg(s, Message(Msg_type['AN_FS_data'], data_dict = {'data': chunk}))
 
 	print("File system sent successfully!")

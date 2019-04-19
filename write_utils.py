@@ -111,6 +111,7 @@ def cons_handler(self, msg, cond, write_req_id, sock):
 		self.send_msg_to_client(client_ip, client_port, -1, sock, write_req_id)
 		return	
 
+
 	#so now initial node(might be leader as well) is running this function and will inform client abt success failure from here itself
 	#waiting for reply from leader
 	with cond:
