@@ -52,7 +52,8 @@ def init_delete(self):
 
 def del_from_network_dict(self,msg):
     #delete node from net directory					
-    del self.network_dict[msg.get_data('id')]
+    if msg.get_data('id') in self.network_dict:
+        del self.network_dict[msg.get_data('id')]
     print("Network Directory:",self.network_dict)
     #broadcast if leader
     if self.is_leader:

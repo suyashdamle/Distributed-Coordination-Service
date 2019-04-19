@@ -198,7 +198,7 @@ def become_ldr_thread_fn(self,evnt):
 		else:
 			file_version_dict[file][0]=self.meta_data[file][2]
 
-		for node,metadata in node_metadata_dict:
+		for node,metadata in node_metadata_dict.items():
 			file_metadata = metadata[file]
 			if file_version_dict[file][0] != file_metadata[2]:
 				file_version_dict[file][2] =  True
@@ -217,12 +217,12 @@ def become_ldr_thread_fn(self,evnt):
 
 	# Update all files that have inconsistency somewhere
 	inconsistent_files = set()
-	for file,entry in file_version_dict:
+	for file,entry in file_version_dict.items():
 		if entry[2]:
 			inconsistent_files.add(file)
 	print("DEBUG_MSG: found %d number(s) of inconsistencies: " %(len(inconsistent_files)))
 
-	for file,entry in file_version_dict:
+	for file,entry in file_version_dict.items():
 		if entry[2]:
 			# found inconsistency.... update everywhere
 			new_recv = (self.network_dict[entry[1]][0],self.network_dict[entry[1]][1])
