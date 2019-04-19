@@ -26,7 +26,7 @@ def clear_write_data(self, write_id):
 
 def send_msg_to_client(self, client_ip, client_port, status, sock, write_req_id):
 	reply_data = {}
-	reply_data['status'] = status
+	reply_data['status'] = status		#can be +1 or -1
 	reply_msg = Message(Msg_type['write_reply'], recv_host = client_ip, recv_port = client_port, data_dict = reply_data)
 	reply_msg._msg_id = (self.node_id, threading.current_thread().ident)
 	send_msg(sock, reply_msg)
@@ -52,7 +52,7 @@ def send_new_msg(self, ip, port, msg):
 
 def write_req_handler(self, msg, cond, write_req_id, sock):
 	#close sock before return
-	print("DEBUG_MSG: New write request received, entered write_req_handler")
+	print("WRITE_MSG: New write request received, entered write_req_handler")
 	data = msg._data_dict
 	client_ip = msg._source_host
 	client_port = msg._source_port
@@ -60,7 +60,7 @@ def write_req_handler(self, msg, cond, write_req_id, sock):
 	route_msg = Message(Msg_type['WR_ROUTE'], recv_host = self.ldr_ip, recv_port = self.ldr_port, data_dict = data)
 	ret = self.send_new_msg(self.ldr_ip, self.ldr_port, route_msg)
 	if not ret:
-		print("DEBUG_MSG: Failed sending Route message to leader")
+		print("WRITE_MSG: Failed sending Route message to leader")
 		self.send_msg_to_client(client_ip, client_port, -1, sock, write_req_id)
 		return	
 
@@ -72,6 +72,7 @@ def write_req_handler(self, msg, cond, write_req_id, sock):
 	q = self.thread_msg_qs[threading.current_thread().ident]
 	if q.empty() or timeout is False:
 		#there is some error, should report it
+		print("WRITE_MSG: Failed to capture REPLY Message (timeout/queue empty)")
 		self.send_msg_to_client(client_ip, client_port, -1, sock, write_req_id)
 		return
 	else:
@@ -87,10 +88,58 @@ def write_req_handler(self, msg, cond, write_req_id, sock):
 		#some error
 		self.send_msg_to_client(client_ip, client_port, -1, sock, write_req_id)
 		pass
+	print("WRITE_MSG: Exiting write_req_handler")
+	return
 
+def cons_handler(self, msg, cond, write_req_id, sock):
+	#close sock before return
+	print("WRITE_MSG: New write request received, entered write_req_handler")
+	data = msg._data_dict
+	#this data does not contain any file
+	filepath = msg._data_dict['filepath']
+	with open(filepath, 'rb') as f:
+		fdata = f.read()
+	#so adding file
+	data['file'] = fdata
+	client_ip = msg._source_host
+	client_port = msg._source_port
+	data['write_req_id'] = write_req_id
+	route_msg = Message(Msg_type['WR_ROUTE'], recv_host = self.ldr_ip, recv_port = self.ldr_port, data_dict = data)
+	ret = self.send_new_msg(self.ldr_ip, self.ldr_port, route_msg)
+	if not ret:
+		print("WRITE_MSG: Failed sending Route message to leader")
+		self.send_msg_to_client(client_ip, client_port, -1, sock, write_req_id)
+		return	
+
+	#so now initial node(might be leader as well) is running this function and will inform client abt success failure from here itself
+	#waiting for reply from leader
+	with cond:
+		timeout = cond.wait(timeout = self.timeout_write_req)
+	#notify called on receiving a REPLY msg or timeout occurred
+	q = self.thread_msg_qs[threading.current_thread().ident]
+	if q.empty() or timeout is False:
+		#there is some error, should report it
+		print("WRITE_MSG: Failed to capture REPLY Message (timeout/queue empty)")
+		self.send_msg_to_client(client_ip, client_port, -1, sock, write_req_id)
+		return
+	else:
+		ldr_reply_msg = q.get()
+
+	if Msg_type(ldr_reply_msg._m_type) is Msg_type.WR_REPLY:
+		succ = ldr_reply_msg._data_dict['write_succ']
+		if succ:
+			self.send_msg_to_client(client_ip, client_port, +1, sock, write_req_id)
+		else:
+			self.send_msg_to_client(client_ip, client_port, -1, sock, write_req_id)
+	else: 
+		#some error
+		self.send_msg_to_client(client_ip, client_port, -1, sock, write_req_id)
+		pass
+	print("WRITE_MSG: Exiting write_req_handler")
 	return
 
 def routed_write_handler(self, msg, cond):
+	print("WRITE_MSG: Entered routed_write_handler")
 	if not self.is_leader or not self.ldr_alive or not self.add_node or self.sponsor_node_count > 0:
 		print("Entered stopping area in leader")
 		if not self.is_leader:
@@ -128,6 +177,7 @@ def routed_write_handler(self, msg, cond):
 #this is only called by leader
 #this message should have 'filedir', 'filename' and 'file' fields in it's _data_dict
 def two_phase_commit(self, msg, cond):
+	print("WRITE_MSG: Entering two_phase_commit function")
 	#create a entry in write_ids dict
 	self.global_write_id += 1
 	curr_write_id = self.global_write_id
@@ -153,6 +203,7 @@ def two_phase_commit(self, msg, cond):
 	with cond:
 
 		#store file's older version 
+		print("WRITE_MSG: Storing older version of file")
 		write_succ = True
 		msgdata = msg._data_dict
 		filedir = msgdata['filedir']
@@ -174,6 +225,7 @@ def two_phase_commit(self, msg, cond):
 			pass		
 
 		#write newer version (go through directory structure and write)
+		print("WRITE_MSG: Writing new version of file")
 		if not os.path.exists(filedir):
 			#need to create the directory first
 			os.makedirs(filedir)
@@ -201,6 +253,7 @@ def two_phase_commit(self, msg, cond):
 			return
 
 		#send COMMIT_REQ message to all cohorts
+		print("WRITE_MSG: Sending COMMIT_REQ message to cohorts")
 		msgdata['write_id'] = curr_write_id
 		COMMIT_REQ_msg = Message(Msg_type['WR_COMMIT_REQ'], data_dict=msgdata)
 		for node_id, ip_port in self.network_dict.items():
@@ -218,7 +271,8 @@ def two_phase_commit(self, msg, cond):
 				else:
 					break
 
-		#wait for AGREED/ABORT from all (timeout big/dynamic) - TODO
+		#wait for AGREED/ABORT from all (timeout big/dynamic)
+		print("WRITE_MSG: Waiting for AGREED/ABORT messages")
 		n_agreed = 0
 		n_abort = 0
 		fail = False
@@ -244,6 +298,7 @@ def two_phase_commit(self, msg, cond):
 
 		#if any ABORTS/*timeout*(even one time), undo the local changes and send fail reply msg to node 
 		if n_abort > 0 or fail is True:
+			print("WRITE_MSG: ABORT/TIMEOUT => undoing local changes")
 			#write back older version and discard new one
 			if not exists :
 				#file was not present and new file was created
@@ -262,6 +317,7 @@ def two_phase_commit(self, msg, cond):
 
 		#n_agreed must be len(self.network_dict) here
 		if write_succ :
+			print("WRITE_MSG: Leader committing changes, sending COMMIT message to cohorts")
 			#if all AGREED, leader commits the changes
 			del older	#or older = None
 			if filepath not in self.meta_data:
@@ -286,6 +342,7 @@ def two_phase_commit(self, msg, cond):
 						break
 		else :
 			#send ABORT message to all
+			print("WRITE_MSG: Sending ABORT message to cohorts, exiting")
 			ABORT_msg = Message(Msg_type['WR_ABORT'], data_dict=msgdata)
 			for node_id, ip_port in self.network_dict.items():
 				if ip_port[0] == self.ldr_ip and ip_port[1] == self.ldr_port :
@@ -298,6 +355,7 @@ def two_phase_commit(self, msg, cond):
 
 		n_acks = 0
 		#wait for ACK from all
+		print("WRITE_MSG: Waiting for ACKs from cohorts")
 		while n_acks < len(self.network_dict):
 			timeout = cond.wait(timeout = self.timeout_write)
 			if timeout is False:
@@ -312,6 +370,7 @@ def two_phase_commit(self, msg, cond):
 					n_acks += 1
 
 		#send a "REPLY" msg to reply_node
+		print("WRITE_MSG: Sending a reply message to node connected to client")
 		reply_data['write_succ'] = write_succ
 		reply_msg = Message(Msg_type['WR_REPLY'], recv_host = reply_node_ip, recv_port = reply_node_port, data_dict = reply_data)
 		tries = 0
@@ -325,6 +384,7 @@ def two_phase_commit(self, msg, cond):
 					print("Try : "+str(tries)+" - Failed to send REPLY message to node connected to client, retrying")
 			else:
 				break
+		print("WRITE_MSG: 2PC successful, exiting")
 		self.clear_write_data(curr_write_id)
 		return
 
@@ -332,6 +392,7 @@ def two_phase_commit(self, msg, cond):
 def non_leader_write_handler(self, msg, cond):
 	#activated on receiving COMMIT_REQ message^
 	#update global write id
+	print("WRITE_MSG: Entered write handler in cohort on receive of COMMIT_REQ message")
 	curr_write_id = msg._data_dict['write_id']
 	self.global_write_id = max(self.global_write_id, curr_write_id)
 	source_nid = msg._msg_id[0]
@@ -360,6 +421,7 @@ def non_leader_write_handler(self, msg, cond):
 		return
 
 	#store file's older version
+	print("WRITE_MSG: Storing file's older version")
 	write_succ = True
 	msgdata = msg._data_dict
 	filedir = msgdata['filedir']
@@ -381,6 +443,7 @@ def non_leader_write_handler(self, msg, cond):
 		pass		
 
 	#write newer version (go through directory structure and write)
+	print("WRITE_MSG: Writing new version of file")
 	if not os.path.exists(filedir):
 		#need to create the directory first
 		os.makedirs(filedir)
@@ -410,9 +473,11 @@ def non_leader_write_handler(self, msg, cond):
 			else:
 				print("Try : "+str(tries)+" - Failed to send message(response to COMMIT_REQ) to leader, retrying")
 		else:
+			print("WRITE_MSG: AGREED/ABORT message sent successfully to leader")
 			break
 
 	if not write_succ :
+		print("WRITE_MSG: Failed to send AGREED/ABORT Message to leader")
 		self.clear_write_data(curr_write_id)
 		return
 
@@ -424,6 +489,7 @@ def non_leader_write_handler(self, msg, cond):
 	#now need to take out message out of queue
 	q = self.thread_msg_qs[threading.current_thread().ident]
 	if q.empty() or timeout is False:
+		print("WRITE_MSG: Failed to capture COMMIT/ABORT Message (timeout/queue empty)")
 		#there is some error, should report it
 		self.clear_write_data(curr_write_id)
 		return
@@ -431,6 +497,7 @@ def non_leader_write_handler(self, msg, cond):
 		reply_msg = q.get()
 
 	if Msg_type(reply_msg._m_type) is Msg_type.WR_ABORT:
+		print("WRITE_MSG: ABORT message received ")
 		#write back older version and discard new one
 		if not exists :
 			#file was not present and new file was created
@@ -443,6 +510,7 @@ def non_leader_write_handler(self, msg, cond):
 			del older
 
 	elif Msg_type(reply_msg._m_type) is Msg_type.WR_COMMIT:
+		print("WRITE_MSG: COMMIT Message received, deleting older version")
 		#then on receiving COMMIT msg, discard the older version
 		del older	#or older = None
 		#update version no and send ACK
@@ -463,5 +531,6 @@ def non_leader_write_handler(self, msg, cond):
 		pass
 
 	#clear queue
+	print("WRITE_MSG: Write done successfully")
 	self.clear_write_data(curr_write_id)
 	return

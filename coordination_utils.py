@@ -28,6 +28,7 @@ class Msg_type(enum.Enum):
 	init_delete = 22		#client commanding deletion
 	read_request = 23		#request for read from user
 	file_data = 24
+	cons_req = 25			#consistency request
 	# TODO: add more!!
 
 
@@ -50,9 +51,12 @@ def send_msg(sock, msg):
 		sock : the bound socket
 		msg  : object to be sent 
 	"""
-	msg = pickle.dumps(msg)
-	msg = struct.pack('>I', len(msg)) + msg
-	sock.sendall(msg)
+	try:
+		msg = pickle.dumps(msg)
+		msg = struct.pack('>I', len(msg)) + msg
+		sock.sendall(msg)
+	except Exception as  e:
+		print("Execption : ", e)
 
 def recvall(sock, n):
 	# Helper function to recv n bytes or return None if EOF is hit

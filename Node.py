@@ -126,7 +126,7 @@ class Node(object):
 	from ldr_elect_utils import ldrelect_thread_fn,ldr_agreement_fn, become_ldr_thread_fn
 	from add_node_utils import add_node_protocol,send_AN_ldr_info,assign_new_id,send_file_system
 	from delete_node_utils import del_from_network_dict,init_delete
-	from write_utils import write_req_handler, routed_write_handler, non_leader_write_handler, two_phase_commit, clear_write_req_data, clear_write_data, send_msg_to_client, send_new_msg
+	from write_utils import write_req_handler, routed_write_handler, non_leader_write_handler, two_phase_commit, clear_write_req_data, clear_write_data, send_msg_to_client, send_new_msg, cons_handler
 	from read_utils import send_file
 
 	
@@ -285,8 +285,6 @@ class Node(object):
 				# re-rstarting timer
 				time.sleep(self.ldr_heartbeat_delay)
 
-
-			
 	def coordination_thread_fn(self, heartbeat_tid):
 
 		print("Listening on port :",self.PORT)
@@ -340,6 +338,19 @@ class Node(object):
 							curr_wrreq_id = self.wrreq_id
 							#DONE - pass socket identifier as arg of following func call :
 							write_thread = threading.Thread(target = self.write_req_handler, args=(msg, cond, curr_wrreq_id, s))
+							write_thread.start()
+							self.wrreq_conditions[curr_wrreq_id] = cond
+							self.wrreq_tids[curr_wrreq_id] = write_thread.ident
+							self.thread_msg_qs[write_thread.ident] = queue.Queue()
+							continue											#we don't want this socket to close
+
+						elif Msg_type(msg._m_type) is Msg_type.cons_req:		#can be received by any node (this message comes from new leader for maintaining consistency)
+							#this message should have 'filepath' fields in it's _data_dict
+							cond = threading.Condition()
+							self.wrreq_id += 1
+							curr_wrreq_id = self.wrreq_id
+							#DONE - pass socket identifier as arg of following func call :
+							write_thread = threading.Thread(target = self.cons_handler, args=(msg, cond, curr_wrreq_id, s))
 							write_thread.start()
 							self.wrreq_conditions[curr_wrreq_id] = cond
 							self.wrreq_tids[curr_wrreq_id] = write_thread.ident
@@ -454,10 +465,12 @@ class Node(object):
 							send_file_system_thread.start()
 
 						elif Msg_type(msg._m_type) is Msg_type.read_request:
+							s.settimeout(None)
 							read_thread = threading.Thread(target = self.send_file, args=(msg.get_data('filename'),\
 																							msg.get_data('filedir'),s))
 							read_thread.start()
 							continue
+
 						elif Msg_type(msg._m_type) is Msg_type.ldr_proposal:
 							# spawn a become_leader thread if it doesnt exist and pass future messages to it
 							if self.is_leader:

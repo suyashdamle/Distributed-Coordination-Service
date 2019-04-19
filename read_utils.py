@@ -22,8 +22,8 @@ def send_file(self,filename,filepath,sock):
 	print("File sent successfully!")
 
 	f.close()
-	self.inputs.remove(sock)
-	sock.close()
+	#self.inputs.remove(sock)
+	#sock.close()
 
 def receive_file(dest_path,sock):
 	
