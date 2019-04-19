@@ -129,6 +129,7 @@ def add_node_protocol(self):
 	# self.file_system_port.close()
 	self.add_node = True
 	print("Node added successfully !")
+	print("DEUBG_MSG: metadata",self.meta_data)
 
 
 # Function to send leader ip and leader port to the new node that is being added

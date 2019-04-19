@@ -140,10 +140,120 @@ def become_ldr_thread_fn(self,evnt):
 	self.ldr_port = self.PORT
 	self.ldr_ip = self.HOST
 	self.ldr_alive = True
-	self.become_ldr_tid = None
 	print("Leader election complete: ",self.ldr_id," ",self.ldr_port)
 	
+	##############################
+	# wait for 1 complete heartbeat cycle - to update network table
+	print("UPDATING NETWORK TABLE")
+	time.sleep(10)#self.heartbeat_delay*self.timeout_thresh + 
 	
+	print("INITIATING CONSISTENCY CHECK:")
+	new_msg = Message(Msg_type['send_metadata'],msg_id = (self.node_id,threading.current_thread().ident))
+	# send to all alive nodes - try a max_tries number of times:
+	for n_id in self.network_dict.keys():
+		with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+			new_recv = (self.network_dict[n_id][0],self.network_dict[n_id][1])
+			new_msg._source_host,new_msg._source_port = s.getsockname()
+			new_msg._recv_host,new_msg._recv_port = new_recv
+			for i in range(self.max_tries):	
+				try:
+					s.connect(new_recv)
+					send_msg(s, new_msg)			
+				except:
+					continue
+				else:	
+					break
+	# wait on queue for all meta datas:
+	q = self.thread_msg_qs[threading.current_thread().ident]		
+	# received all metadatas in queue
+	# TODO: handle the waiting differently?
+	node_metadata_dict = {}			# all node-ids with metadata
+	count_tries = 0
+	while  len(node_metadata_dict) !=  len(self.network_dict) and count_tries<self.max_tries:
+		time.sleep(self.heartbeat_delay*self.timeout_thresh)
+		while not q.empty():
+			msg = q.get()
+			if not (msg._m_type is Msg_type.metadata_info):
+				continue
+			node_metadata_dict[msg._msg_id[0]] = msg._data_dict['meta-data']
+		count_tries+=1
+	
+	# since this far exceeds heartbeat timeouts, all nodes that could respond have responded
+	file_version_dict = {}		# stores file path with corresponding latest version number and id of node with latest data
+
+	all_files_set = set()
+	for n_id, metadata in node_metadata_dict.items():
+		for entry,data in metadata.items():
+			if data[0] == 0: 	# ignore directories
+				continue
+			else:
+				all_files_set.add(entry)
+	# collected all files
+	for file in all_files_set:
+		# data for a file has: [latest version no, node with latest version, is there inconsistency]		
+		file_version_dict[file]=[-1, self.node_id,False]
+		if file not in self.meta_data:
+			file_version_dict[file][2]=True
+			file_version_dict[file][0]=-1
+		else:
+			file_version_dict[file][0]=self.meta_data[file][2]
+
+		for node,metadata in node_metadata_dict:
+			file_metadata = metadata[file]
+			if file_version_dict[file][0] != file_metadata[2]:
+				file_version_dict[file][2] =  True
+			if file_version_dict[file][0] < file_metadata[2]:
+				file_version_dict[file][0] = file_metadata[2]
+				file_version_dict[file][1] = node
+
+	# We now have records of most recent file versions AND the nodes which have them
+
+	# # Now, update itself to latest version of all files: - use read command
+	# for file in all_files_set:
+	# 	if file not in self.meta_data or file_version_dict[0] > self.meta_data[file][2]:
+	# 		file_version_dict[file][2] = True
+	# 		# copy (possibly large) file from another server
+	# 		pass
+
+	# Update all files that have inconsistency somewhere
+	inconsistent_files = set()
+	for file,entry in file_version_dict:
+		if entry[2]:
+			inconsistent_files.add(file)
+	print("DEBUG_MSG: found %d number(s) of inconsistencies: " %(len(inconsistent_files)))
+
+	for file,entry in file_version_dict:
+		if entry[2]:
+			# found inconsistency.... update everywhere
+			new_recv = (self.network_dict[entry[1]][0],self.network_dict[entry[1]][1])
+			msg = Message(Msg_type['cons_req'],msg_id = ())
+			# filename, filedir, file,write_id
+			msg._data_dict = {'filepath':file}
+			new_recv = (self.HOST,self.PORT)
+			msg._recv_host,msg._recv_port = new_recv
+			with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+				msg._source_host, msg._source_port = s.getsockname()	
+				try:
+					s.connect(new_recv)
+				except:
+					pass
+				else:
+					send_msg(s, new_msg)
+					ack = recv_msg(s)
+					# write req; status
+					status = ack.get_data['status']
+					print("DEBUG_MSG: Consistency Check: file: ",file,": status: ",status)
+
+
+	# wipe off its existence
+	try:
+		del self.thread_msg_qs[thread_to_kill.ident]
+	except:
+		pass
+	self.become_ldr_tid = None
+
+	
+
 	# responded_nodes=set()
 
 	# timeout = threading.Timer(self.timeout_thresh*self.heartbeat_delay,become_ldr_killer,args=[self,threading.current_thread(),responded_nodes])
@@ -187,7 +297,6 @@ def become_ldr_thread_fn(self,evnt):
 # 	# return from this thread === kill it
 # 	return
 # 	#thread_to_kill.join()
-
 
 
 

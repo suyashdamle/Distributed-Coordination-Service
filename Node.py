@@ -345,6 +345,21 @@ class Node(object):
 							self.wrreq_tids[curr_wrreq_id] = write_thread.ident
 							self.thread_msg_qs[write_thread.ident] = queue.Queue()
 							continue											#we don't want this socket to close
+						######################################
+						elif Msg_type(msg._m_type) is Msg_type.cons_req:		#can be received by any node (this message comes from new leader for maintaining consistency)
+							#this message should have 'filepath' fields in it's _data_dict
+							cond = threading.Condition()
+							self.wrreq_id += 1
+							curr_wrreq_id = self.wrreq_id
+							#DONE - pass socket identifier as arg of following func call :
+							write_thread = threading.Thread(target = self.cons_handler, args=(msg, cond, curr_wrreq_id, s))
+							write_thread.start()
+							self.wrreq_conditions[curr_wrreq_id] = cond
+							self.wrreq_tids[curr_wrreq_id] = write_thread.ident
+							self.thread_msg_qs[write_thread.ident] = queue.Queue()
+							continue											#we don't want this socket to close
+
+						#######################################
 
 						elif Msg_type(msg._m_type) is Msg_type.WR_ROUTE:		#only received by a leader
 							cond = threading.Condition()
@@ -528,14 +543,31 @@ class Node(object):
 								self.ldr_alive = True
 								self.ldr_stat_lock.release()
 
-						
+
+						elif Msg_type(msg._m_type) is Msg_type.send_metadata:
+							# send meta-data to dictionary
+							new_recv = (self.network_dict[msg._msg_id[0]][0],self.network_dict[msg._msg_id[0]][1])
+							msg = Message(Msg_type['metadata_info'],msg_id = (self.node_id,threading.current_thread().ident))
+							msg._recv_host,msg._recv_port = new_recv
+							msg._data_dict = {'meta-data':self.meta_data}
+							with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+								msg._source_host, msg._source_port = s.getsockname()	
+								try:
+									s.connect(new_recv)
+								except:
+									pass
+								else:
+									send_msg(s, msg)
+						elif Msg_type(msg._m_type) is Msg_type.metadata_info:
+							self.thread_msg_qs[self.become_ldr_tid].put(msg)
+
 						elif Msg_type(msg._m_type) is Msg_type.delete_node:
 							delete_node_thread = threading.Thread(target = self.del_from_network_dict, args=(msg,))
 							delete_node_thread.start()
 							
 							# self.del_from_network_dict(msg)
 							
-							
+						
 						elif Msg_type(msg._m_type) is Msg_type.init_delete:
 							# init_delete_thread = threading.Thread(target = self.init_delete, args=())
 							# init_delete_thread_id = init_delete_thread.ident
@@ -553,8 +585,11 @@ class Node(object):
 						# if s not in outputs:
 						#     outputs.append(s)
 						
-						self.inputs.remove(s)
-						s.close()
+						try:
+							self.inputs.remove(s)
+							s.close()
+						except:
+							pass
 
 			for s in writable:
 				# If something has to be sent - send it. Else, remove connection from output queue

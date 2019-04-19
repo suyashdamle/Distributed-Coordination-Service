@@ -16,16 +16,17 @@ from add_node_utils import *
 from write_utils import *
 from Message import Message
 
-ip = "127.0.0.1"
-port = 64531
+ip = "10.146.240.216"
+# ip = '10.145.106.101'
+port = 8898
 data = None
-with open("./file/temp.txt", 'rb') as f:
+with open("./file/5.flv", 'rb') as f:
 	data = f.read()
 
 data_dict = {}
 data_dict['file'] = data
-data_dict['filedir'] = './root/b/'
-data_dict['filename'] = 'temp.txt'
+data_dict['filedir'] = './root/a'
+data_dict['filename'] = '5.flv'
 msg = Message(Msg_type['write_req'], recv_host = ip, recv_port = port, data_dict = data_dict)
 
 with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
